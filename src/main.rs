@@ -1,7 +1,6 @@
 mod protos;
 
 use core::result::Result;
-use protobuf::Message;
 use protos::generated::dev::LogMsg;
 use protos::generated::dev::LoggerProto;
 use std::collections::HashMap;
@@ -43,22 +42,34 @@ fn init_new_fragments() -> Fragments {
     }
 }
 
-// std::net::SocketAddr
-
-struct FragmentCombiner {
-    hosts: HashMap<std::net::SocketAddr, Fragments>,
+trait MessageHandler<T> {
+    fn on_message(&mut self, src: std::net::SocketAddr, msg: T);
 }
 
-impl FragmentCombiner {
-    fn add_fragment(
-        &mut self,
-        src: std::net::SocketAddr,
-        buf: &[u8],
-    ) -> Result<Option<LoggerProto>, String> {
-        let client_address = src.to_string();
+struct LogPrinter {}
 
+impl MessageHandler<LoggerProto> for LogPrinter {
+    fn on_message(&mut self, src: std::net::SocketAddr, msg: LoggerProto) {
+        println!("{0}: {1}", src.to_string(), msg.to_string())
+    }
+}
+
+struct FragmentCombiner<'a, T> {
+    hosts: HashMap<std::net::SocketAddr, Fragments>,
+    handler: &'a mut dyn MessageHandler<T>,
+}
+
+impl<T: protobuf::Message> FragmentCombiner<'_, T> {
+    fn new(handler: &mut dyn MessageHandler<T>) -> FragmentCombiner<T> {
+        FragmentCombiner {
+            hosts: HashMap::new(),
+            handler,
+        }
+    }
+
+    fn add_fragment(&mut self, src: std::net::SocketAddr, buf: &[u8]) -> Result<(), String> {
         if buf.len() < 5 {
-            return Err("too short message".to_string());
+            return Err(format!("too short message, len: {}", buf.len()));
         }
 
         let info = FragInfo {
@@ -78,7 +89,6 @@ impl FragmentCombiner {
             return Err(format!("unsupported flags: {}", info.flags));
         }
 
-        //src.ip.fold
         let curr = self.hosts.entry(src).or_insert_with(init_new_fragments);
         if curr.seq != info.seq {
             *curr = init_new_fragments();
@@ -98,68 +108,41 @@ impl FragmentCombiner {
                 total_size: end,
             });
         } else if buf.len() != MAX_UDP {
-            return Err(format!(
-                "{0}: wrong packet size: {1}\n",
-                client_address,
-                buf.len()
-            ));
+            return Err(format!("wrong packet size: {}\n", buf.len()));
         }
 
         curr.message[begin..end].copy_from_slice(&buf[FRAG_INFO_SZ..buf.len()]);
         curr.recv_frag += 1;
 
         match &curr.last {
-            None => Ok(None),
+            None => Ok(()),
             Some(last) => {
                 if last.nfrag == curr.recv_frag {
-                    LoggerProto::parse_from_bytes(&curr.message[0..last.total_size].to_vec())
-                        .map(|x| Some(x))
+                    T::parse_from_bytes(&curr.message[0..last.total_size].to_vec())
+                        .map(|x| self.handler.on_message(src, x))
                         .map_err(|e| e.to_string())
-                    //println!("log: {}", log.unwrap().to_string());
                 } else {
-                    Ok(None)
+                    Ok(())
                 }
             }
         }
-
-        // println!("src: {:#?}", src.to_string());
     }
 }
 
 fn main() -> std::io::Result<()> {
-    let mut msg = LogMsg::new();
-    msg.set_ts(1);
-    msg.set_text("foo".to_string());
-
-    println!("Hello, world!");
-    println!("proto: {0}", msg);
-
     let socket = UdpSocket::bind("192.168.0.1:6001")?;
 
-    //let mut hosts = HashMap::new();
-    let mut combiner = FragmentCombiner {
-        hosts: HashMap::new(),
-    };
+    let mut log = LogPrinter {};
+    let mut combiner = FragmentCombiner::new(&mut log);
 
     loop {
-        // Receives a single datagram message on the socket. If `buf` is too small to hold
-        // the message, it will be cut off.
         let mut buf = [0; MAX_UDP];
         let (sz, src) = socket.recv_from(&mut buf)?;
-        //println!("{:#04X?}", buf);
 
-        //let mut c = &combiner;
         let res = combiner.add_fragment(src, &buf[0..sz]);
         match res {
             Err(msg) => println!("{0}: ERROR: {1}", src.to_string(), msg),
-            Ok(mb_proto) => match mb_proto {
-                None => {}
-                Some(proto) => println!("{0}: {1}", src.to_string(), proto.to_string()),
-            },
+            Ok(()) => (),
         }
     }
-    // Redeclare `buf` as slice of the received data and send reverse data back to origin.
-    // let buf = &mut buf[..amt];
-    // buf.reverse();
-    // socket.send_to(buf, &src)?;
 }
