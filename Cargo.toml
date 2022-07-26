@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 protobuf = "3.1.0"
+anyhow = "1.0.58"
 
 [build-dependencies]
 protobuf-codegen = "3.1.0"
