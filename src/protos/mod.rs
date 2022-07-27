@@ -4,6 +4,6 @@
 //! as pure rust codegen, and with codegen dependent on `protoc` binary.
 
 pub mod generated {
-    //include!(concat!(env!("OUT_DIR"), "/generated/mod.rs"));
-    include!("generated/mod.rs");
+    include!(concat!(env!("OUT_DIR"), "/generated/mod.rs"));
+    // include!("generated/mod.rs");
 }
