@@ -1,0 +1,11 @@
+[package]
+name = "temperature-enable"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+protobuf = "3.1.0"
+anyhow = { version = "1.0", features = ["backtrace"] }
+chrono = "0.4.19"
+temperature-protocol = { path = "../../protocol" }
+

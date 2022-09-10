@@ -1,12 +1,9 @@
-[package]
-name = "temperature-control"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-protobuf = "3.1.0"
-anyhow = { version = "1.0", features = ["backtrace"] }
-chrono = "0.4.19"
-
-[build-dependencies]
-protobuf-codegen = "3.1.0"
+[workspace]
+resolver = "2"
+members = [
+    "protocol",
+    "apps/logger",
+    "apps/udp-test",
+    "apps/enable",
+    "apps/server",
+]
