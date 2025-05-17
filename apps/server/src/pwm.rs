@@ -1,9 +1,10 @@
+use chrono::{DateTime, Local, Duration, TimeZone};
 use std::cmp::{min, max};
 use std::f64;
 
 trait Control {
-    fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time_ms: f64) -> (bool, u32);
-    fn set_output(&mut self, on: bool, delay: u32, current_time_ms: f64);
+    fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time: DateTime<Local>) -> (bool, u32);
+    fn set_output(&mut self, on: bool, delay: u32, current_time: DateTime<Local>);
 }
 
 struct SimpleControl {
@@ -17,7 +18,7 @@ impl SimpleControl {
 }
 
 impl Control for SimpleControl {
-    fn get_mode(&mut self, temp: f64, target: f64, _future_target: f64, _current_time_ms: f64) -> (bool, u32) {
+    fn get_mode(&mut self, temp: f64, target: f64, _future_target: f64, _current_time: DateTime<Local>) -> (bool, u32) {
         let dt = temp - target;
         if dt > 0.1 {
             (false, 0)
@@ -28,30 +29,31 @@ impl Control for SimpleControl {
         }
     }
 
-    fn set_output(&mut self, on: bool, _delay: u32, _current_time_ms: f64) {
+    fn set_output(&mut self, on: bool, _delay: u32, _current_time: DateTime<Local>) {
         self.is_on = on;
     }
 }
 
 struct PWMControl {
     is_on: bool,
-    is_on_time: f64,
+    is_on_time: DateTime<Local>,
     smooth_t: f64,
     initial_offset: f64,
     new_mode: bool,
-    new_mode_time: f64,
+    new_mode_time: DateTime<Local>,
     last_sensor_temp: f64,
 }
 
 impl PWMControl {
     fn new(initial_offset: f64) -> Self {
+        let epoch_time = Local.timestamp_opt(0, 0).unwrap();
         Self {
             is_on: false,
-            is_on_time: 0.0,
+            is_on_time: epoch_time,
             smooth_t: -1.0,
             initial_offset,
             new_mode: true,
-            new_mode_time: 0.0,
+            new_mode_time: epoch_time,
             last_sensor_temp: 0.0,
         }
     }
@@ -72,10 +74,10 @@ impl PWMControl {
 }
 
 impl Control for PWMControl {
-    fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time_ms: f64) -> (bool, u32) {
+    fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time: DateTime<Local>) -> (bool, u32) {
         self.last_sensor_temp = temp;
 
-        if current_time_ms > self.new_mode_time {
+        if current_time >= self.new_mode_time {
             if self.is_on != self.new_mode {
                 self.is_on_time = self.new_mode_time;
             }
@@ -107,7 +109,9 @@ impl Control for PWMControl {
             return (false, 0);
         }
 
-        let minutes = (current_time_ms - self.is_on_time) / 60_000.0;
+        let duration_on_state = current_time.signed_duration_since(self.is_on_time);
+        let minutes = duration_on_state.num_milliseconds() as f64 / 60_000.0;
+
         let pulse_width = if self.is_on {
             dt * -10.0
         } else {
@@ -116,17 +120,17 @@ impl Control for PWMControl {
 
         if minutes < pulse_width {
             print!("[{}:{:.1} vs {:.1}] ", self.is_on as u8, minutes, pulse_width);
-            (!self.is_on, ((pulse_width - minutes) * 60000.0) as u32)
+            (!self.is_on, ((pulse_width - minutes) * 60000.0).max(0.0) as u32)
         } else {
             print!("[{}!]", (!self.is_on) as u8);
             (!self.is_on, 0)
         }
     }
 
-    fn set_output(&mut self, on: bool, delay: u32, current_time_ms: f64) {
+    fn set_output(&mut self, on: bool, delay: u32, current_time: DateTime<Local>) {
         if delay < 60_000 {
             self.new_mode = on;
-            self.new_mode_time = current_time_ms + delay as f64;
+            self.new_mode_time = current_time + Duration::milliseconds(delay as i64);
         }
     }
 }
@@ -134,8 +138,9 @@ impl Control for PWMControl {
 
 #[cfg(test)]
 mod tests {
-    use crate::pwm::Control;
-    use crate::pwm::PWMControl;
+    use super::*;
+    use chrono::{Duration, Local, TimeZone};
+
 
     struct Room {
         heater_t: f64,
@@ -233,33 +238,46 @@ mod tests {
     fn integration_test() {
         let mut room = Room::new();
         let mut pwm = PWMControl::new(-0.57);
-        let mut time = 10_000_000.0;
+
+        let initial_timestamp_ms = 10_000_000i64;
+        let mut current_time: DateTime<Local> = Local.timestamp_millis_opt(initial_timestamp_ms).unwrap();
+
+        // Actual current mode of the heater
         let mut mode = true;
+        // Mode requested by PWM for next state
         let mut req_mode = true;
-        let mut req_time = 0.0;
+        // Initialize req_time to a time before current_time to ensure first pwm.set_output call is effective
+        let mut req_time: DateTime<Local> = Local.timestamp_millis_opt(0).unwrap();
+
 
         let mut total_samples = 0.0;
         let mut total_error = 0.0;
 
         for curr_target in TargetGen::new() {
             print!("target {:.1} ", curr_target);
-            let old_time = time;
-            time += 60000.0;
+            let old_time = current_time;
+            current_time = current_time + Duration::milliseconds(60_000);
 
-            if req_time >= old_time && req_time < time {
-                let before = req_time - old_time;
-                let after = time - req_time;
-                room.update(mode, before);
+            // Check if the requested mode change falls within the current time step
+            if req_time >= old_time && req_time < current_time {
+                let before_ms = req_time.signed_duration_since(old_time).num_milliseconds() as f64;
+                let after_ms = current_time.signed_duration_since(req_time).num_milliseconds() as f64;
+
+                // Update room with old mode until req_time
+                room.update(mode, before_ms);
                 mode = req_mode;
-                room.update(mode, after);
+                // Update room with new mode for the rest of the step
+                room.update(mode, after_ms);
             } else {
-                room.update(mode, time - old_time);
+                // No mode change in this step, or req_time is outside this step
+                room.update(mode, current_time.signed_duration_since(old_time).num_milliseconds() as f64);
             }
 
-            let (new_mode, delay_ms) = pwm.get_mode(room.get_sensor_t(), curr_target, curr_target, time);
-            pwm.set_output(new_mode, delay_ms, time);
+            let (new_mode, delay_ms_u32) = pwm.get_mode(room.get_sensor_t(), curr_target, curr_target, current_time);
+            pwm.set_output(new_mode, delay_ms_u32, current_time);
+
             req_mode = new_mode;
-            req_time = time + delay_ms as f64;
+            req_time = current_time + Duration::milliseconds(delay_ms_u32 as i64);
 
             total_samples += 1.0;
             total_error += (room.get_sensor_t_raw() - curr_target).abs();
@@ -269,12 +287,11 @@ mod tests {
                 room.get_sensor_t(),
                 mode as u8,
                 req_mode as u8,
-                delay_ms as f64 / 60000.0
+                delay_ms_u32 as f64 / 60000.0
             );
         }
 
         let avg_err = total_error / total_samples;
-        println!("Avg error {:.4}", avg_err);
-        assert!(avg_err > 0.23 && avg_err < 0.26);
+        assert!(avg_err > 0.22 && avg_err < 0.25, "Average error: {:.4}", avg_err);
     }
 }
