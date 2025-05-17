@@ -190,9 +190,34 @@ impl Server {
         status
     }
 
+    async fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool) -> Result<()> {
+        //Update temperature history in web state
+        let mut web_state = self.web_state.write().await;
+        let room_state = if device_id == 0 {
+            &mut web_state.bedroom
+        } else if device_id == 2 {
+            &mut web_state.kids_bedroom
+        } else {
+            return Ok(());
+        };
+
+        // Add new temperature point
+        room_state.temperature_history.push(TemperaturePoint {
+            timestamp: current_timestamp,
+            temperature: temp,
+            target: target_temp,
+            heater_on : header_on,
+        });
+
+        // Keep only last hour of data (60 points)
+        let one_hour_ago = current_timestamp - 3600;
+        room_state.temperature_history.retain(|point| point.timestamp >= one_hour_ago);
+        return Ok(());
+    }
+
     async fn update_web_state(&self) {
         let mut state = self.web_state.write().await;
-        
+
         // Update bedroom state
         state.bedroom.sensor_available = self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
@@ -258,7 +283,7 @@ impl Server {
         Ok(())
     }
 
-    async fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
+    fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
 
         let header_status = self.print_header(&client_ip_str, report.info.as_ref().unwrap_or(&DeviceInfo::default()));
@@ -370,29 +395,13 @@ impl Server {
             self.last_temp_deci.insert(device_id, temp); // Still store its temp if needed elsewhere
         }
 
-        // Update temperature history in web state
-        {
-            let mut web_state = self.web_state.write().await;
-            let room_state = if device_id == 0 {
-                &mut web_state.bedroom
-            } else if device_id == 2 {
-                &mut web_state.kids_bedroom
-            } else {
-                return Ok(());
-            };
-
-            // Add new temperature point
-            room_state.temperature_history.push(TemperaturePoint {
-                timestamp: current_timestamp,
-                temperature: temp,
-                target: target_temp,
-                heater_on,
-            });
-
-            // Keep only last hour of data (60 points)
-            let one_hour_ago = current_timestamp - 3600;
-            room_state.temperature_history.retain(|point| point.timestamp >= one_hour_ago);
-        }
+        // Update web state after processing the report
+        tokio::spawn({
+            let server = self.clone();
+            async move {
+                let _ = server.update_history(device_id, current_timestamp, temp, target_temp, heater_on).await;
+            }
+        });
 
         // Reporting for Netdata collector
         let tmp_file_path_str = format!("{}/new{}", NETDATA_PATH_PREFIX, device_id);
@@ -516,9 +525,7 @@ impl MessageHandler<DeviceMessage> for Server {
         let mut known_message_component_found = false;
 
         if let Some(sensor_report) = msg.sensor.as_ref() {
-            // Create a runtime for async operations
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(self.new_sensor_report(src, sensor_report))?;
+            self.new_sensor_report(src, sensor_report)?;
             known_message_component_found = true;
         } else if let Some(relay_report) = msg.relay.as_ref() {
             self.new_relay_report(src, relay_report)?;
