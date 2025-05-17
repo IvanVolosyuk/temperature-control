@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temperature Control</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-4">
+
+    <h1 class="text-2xl font-bold mb-6 text-gray-800">Room Temperature Control</h1>
+
+    <!-- Bedroom -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-xl font-semibold mb-4 text-gray-700">Bedroom</h2>
+
+        <!-- Temperature Sensor -->
+        <div class="mb-4 p-4 border border-gray-200 rounded-md">
+            <h3 class="text-lg font-medium text-gray-600 mb-2">Temperature Sensor</h3>
+            <div id="bedroom-sensor-status" class="flex items-center">
+                <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-gray-500">
+                <span id="bedroom-sensor-availability" class="text-gray-700">Available</span>
+            </div>
+            <div id="bedroom-sensor-data" class="mt-2">
+                <p class="text-gray-600">Current: <span id="bedroom-current-temp" class="font-medium text-lg">21°C</span></p>
+                <p class="text-gray-600">Target: <span id="bedroom-target-temp" class="font-medium text-lg">22°C</span></p>
+            </div>
+        </div>
+
+        <!-- Heater Relay -->
+        <div class="p-4 border border-gray-200 rounded-md">
+            <h3 class="text-lg font-medium text-gray-600 mb-2">Heater Relay</h3>
+            <div id="bedroom-relay-status" class="flex items-center mb-2">
+                <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-gray-500">
+                <span id="bedroom-relay-availability" class="text-gray-700">Available</span>
+            </div>
+            <div class="flex items-center justify-between">
+                <p class="text-gray-600">State: <span id="bedroom-relay-state" class="font-medium text-lg">Off</span></p>
+                <button id="bedroom-relay-toggle" class="px-5 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 text-lg">
+                    Toggle On
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Kids Bedroom -->
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-xl font-semibold mb-4 text-gray-700">Kids Bedroom</h2>
+
+        <!-- Temperature Sensor -->
+        <div class="mb-4 p-4 border border-gray-200 rounded-md">
+            <h3 class="text-lg font-medium text-gray-600 mb-2">Temperature Sensor</h3>
+            <div id="kids-bedroom-sensor-status" class="flex items-center">
+                <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-gray-500">
+                <span id="kids-bedroom-sensor-availability" class="text-gray-700">Unavailable</span>
+            </div>
+            <div id="kids-bedroom-sensor-data" class="mt-2">
+                <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">19°C</span></p>
+                <p class="text-gray-600">Target: <span id="kids-bedroom-target-temp" class="font-medium text-lg">20°C</span></p>
+            </div>
+        </div>
+
+        <!-- Heater Relay -->
+        <div class="p-4 border border-gray-200 rounded-md">
+            <h3 class="text-lg font-medium text-gray-600 mb-2">Heater Relay</h3>
+            <div id="kids-bedroom-relay-status" class="flex items-center mb-2">
+                <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-gray-500">
+                <span id="kids-bedroom-relay-availability" class="text-gray-700">Unavailable</span>
+            </div>
+            <div class="flex items-center justify-between">
+                <p class="text-gray-600">State: <span id="kids-bedroom-relay-state" class="font-medium text-lg">Off</span></p>
+                <button id="kids-bedroom-relay-toggle" class="px-5 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1 text-lg">
+                    Toggle On (Unavailable)
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Function to update UI with real data
+        async function updateUI() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                // Update bedroom
+                updateRoomUI('bedroom', {
+                    sensor: {
+                        available: data.bedroom.sensor_available,
+                        currentTemp: data.bedroom.current_temp,
+                        targetTemp: data.bedroom.target_temp
+                    },
+                    relay: {
+                        available: data.bedroom.relay_available,
+                        state: data.bedroom.relay_state ? 'On' : 'Off'
+                    }
+                });
+
+                // Update kids bedroom
+                updateRoomUI('kidsBedroom', {
+                    sensor: {
+                        available: data.kids_bedroom.sensor_available,
+                        currentTemp: data.kids_bedroom.current_temp,
+                        targetTemp: data.kids_bedroom.target_temp
+                    },
+                    relay: {
+                        available: data.kids_bedroom.relay_available,
+                        state: data.kids_bedroom.relay_state ? 'On' : 'Off'
+                    }
+                });
+            } catch (error) {
+                console.error('Error fetching status:', error);
+            }
+        }
+
+        // Update UI every second
+        setInterval(updateUI, 1000);
+        // Initial update
+        updateUI();
+    </script>
+
+</body>
+</html>

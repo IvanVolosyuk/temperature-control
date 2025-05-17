@@ -1,18 +1,27 @@
 use chrono::{DateTime, Local, Duration, TimeZone};
 use std::f64;
 
-pub trait Control {
-    fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time: DateTime<Local>) -> (bool, u32);
-    fn set_output(&mut self, on: bool, delay: u32, current_time: DateTime<Local>);
+pub trait Control: Send + Clone {
+    fn get_mode(
+        &mut self,
+        current_temp: f64,
+        target_temp: f64,
+        future_target_temp: f64,
+        current_time: DateTime<Local>,
+    ) -> (bool, u32);
+    fn set_output(&mut self, mode_on: bool, delay_ms: u32, current_time: DateTime<Local>);
 }
 
+#[derive(Clone)]
 pub struct SimpleControl {
     is_on: bool,
+    last_on_time: Option<DateTime<Local>>,
+    last_off_time: Option<DateTime<Local>>,
 }
 
 impl SimpleControl {
     pub fn new() -> Self {
-        Self { is_on: false }
+        Self { is_on: false, last_on_time: None, last_off_time: None }
     }
 }
 
@@ -30,9 +39,15 @@ impl Control for SimpleControl {
 
     fn set_output(&mut self, on: bool, _delay: u32, _current_time: DateTime<Local>) {
         self.is_on = on;
+        if on {
+            self.last_on_time = Some(Local::now());
+        } else {
+            self.last_off_time = Some(Local::now());
+        }
     }
 }
 
+#[derive(Clone)]
 pub struct PWMControl {
     is_on: bool,
     is_on_time: DateTime<Local>,
@@ -41,6 +56,9 @@ pub struct PWMControl {
     new_mode: bool,
     new_mode_time: DateTime<Local>,
     last_sensor_temp: f64,
+    correction: f64,
+    last_on_time: Option<DateTime<Local>>,
+    last_off_time: Option<DateTime<Local>>,
 }
 
 impl PWMControl {
@@ -54,6 +72,9 @@ impl PWMControl {
             new_mode: true,
             new_mode_time: epoch_time,
             last_sensor_temp: 0.0,
+            correction: 0.0,
+            last_on_time: None,
+            last_off_time: None,
         }
     }
 
@@ -130,6 +151,11 @@ impl Control for PWMControl {
         if delay < 60_000 {
             self.new_mode = on;
             self.new_mode_time = current_time + Duration::milliseconds(delay as i64);
+        }
+        if on {
+            self.last_on_time = Some(current_time);
+        } else {
+            self.last_off_time = Some(current_time);
         }
     }
 }

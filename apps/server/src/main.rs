@@ -1,5 +1,6 @@
 pub mod pwm;
 pub mod schedule;
+pub mod web;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, Timelike};
@@ -7,7 +8,10 @@ use std::collections::HashMap;
 use std::fs::{File, rename};
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use crate::schedule::INTERPOLATE_INTERVALS;
+use crate::web::{ServerState, RoomState, create_web_server};
 
 // These are from the temperature_protocol crate
 use temperature_protocol::fragment_combiner::{FragmentCombiner, MessageHandler};
@@ -124,7 +128,8 @@ struct Server {
     // Key: Relay hostname (e.g. "esp8266-relay0.local")
     relay_confirmations: HashMap<String, RelayConfirmationState>,
 
-    controls: Vec<Box<dyn Control>>,
+    controls: Arc<Vec<Box<dyn Control>>>,
+    web_state: Arc<RwLock<ServerState>>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -147,7 +152,8 @@ impl Server {
             last_temp_deci: HashMap::new(),
             last_relay_on_status: HashMap::new(),
             relay_confirmations: HashMap::new(),
-            controls,
+            controls: Arc::new(controls),
+            web_state: Arc::new(RwLock::new(ServerState::default())),
         }
     }
 
@@ -184,6 +190,32 @@ impl Server {
         status
     }
 
+    async fn update_web_state(&self) {
+        let mut state = self.web_state.write().await;
+        
+        // Update bedroom state
+        state.bedroom.sensor_available = self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP)
+            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
+        state.bedroom.current_temp = self.last_temp_deci.get(&0).copied().unwrap_or(0.0);
+        state.bedroom.target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[0], Local::now());
+        state.bedroom.relay_available = self.last_message_timestamp.get(BEDROOM_RELAY_EXPECTED_IP)
+            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
+        state.bedroom.relay_state = self.last_relay_on_status.get(BEDROOM_RELAY_EXPECTED_IP)
+            .copied()
+            .unwrap_or(false);
+
+        // Update kids bedroom state
+        state.kids_bedroom.sensor_available = self.last_message_timestamp.get(KIDS_SENSOR_EXPECTED_IP)
+            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
+        state.kids_bedroom.current_temp = self.last_temp_deci.get(&2).copied().unwrap_or(0.0);
+        state.kids_bedroom.target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[2], Local::now());
+        state.kids_bedroom.relay_available = self.last_message_timestamp.get(KIDS_RELAY_EXPECTED_IP)
+            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
+        state.kids_bedroom.relay_state = self.last_relay_on_status.get(KIDS_RELAY_EXPECTED_IP)
+            .copied()
+            .unwrap_or(false);
+    }
+
     fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
         self.last_message_timestamp.insert(client_ip_str.clone(), Local::now().timestamp());
@@ -214,6 +246,15 @@ impl Server {
             if header_status == PrintHeaderStatus::HasStatusUpdate { "\n" } else { "\r" }
         );
         stdout().flush()?;
+
+        // Update web state after processing the report
+        tokio::spawn({
+            let server = self.clone();
+            async move {
+                server.update_web_state().await;
+            }
+        });
+
         Ok(())
     }
 
@@ -266,7 +307,7 @@ impl Server {
 
         let mut target_temp = temp; // Default target to current temp if not controlled
 
-        if (device_id as usize) < RELAYS.len() { // Check if ID is within manageable range
+        if (device_id as usize) < self.controls.len() { // Check if ID is within manageable range
             target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
 
             temp += CORRECTION[device_id as usize];
@@ -276,15 +317,16 @@ impl Server {
             // FIXME: add 10 minutes to future time
             let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
 
-            if let Some(control_strategy) = self.controls.get_mut(device_id as usize) {
-                let (mode_on, delay_ms) = control_strategy.get_mode(
+            if let Some(control_strategy) = self.controls.get(device_id as usize) {
+                let mut control = control_strategy.clone();
+                let (mode_on, delay_ms) = control.get_mode(
                     temp,
                     target_temp,
                     future_target_temp,
                     current_time
                 );
                 // Call set_output on the control strategy object itself (for its internal state)
-                control_strategy.set_output(mode_on, delay_ms, current_time);
+                control.set_output(mode_on, delay_ms, current_time);
 
                 // Now, command the actual relay and log according to C++ logic
                 let relay_hostname = RELAYS[device_id as usize];
@@ -372,6 +414,15 @@ impl Server {
 
         println!(); // End the line for sensor report
         stdout().flush()?;
+
+        // Update web state after processing the report
+        tokio::spawn({
+            let server = self.clone();
+            async move {
+                server.update_web_state().await;
+            }
+        });
+
         Ok(())
     }
 
@@ -423,6 +474,20 @@ impl Server {
     }
 }
 
+// Make Server cloneable for async tasks
+impl Clone for Server {
+    fn clone(&self) -> Self {
+        Server {
+            last_message_timestamp: self.last_message_timestamp.clone(),
+            last_temp_deci: self.last_temp_deci.clone(),
+            last_relay_on_status: self.last_relay_on_status.clone(),
+            relay_confirmations: self.relay_confirmations.clone(),
+            controls: self.controls.clone(),
+            web_state: self.web_state.clone(),
+        }
+    }
+}
+
 impl MessageHandler<DeviceMessage> for Server {
     fn on_message(
         &mut self,
@@ -456,13 +521,18 @@ impl MessageHandler<DeviceMessage> for Server {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize the server state
     let mut server = Server::new();
+    let web_state = server.web_state.clone();
+
+    // Start the web server in a separate task
+    tokio::spawn(async move {
+        create_web_server(web_state).await;
+    });
 
     // Start the main loop using FragmentCombiner
-    // The FragmentCombiner will listen on UDP, reassemble fragments,
-    // parse them into DeviceMessage, and call server.on_message().
     println!("Starting temperature server on 0.0.0.0:4000...");
     FragmentCombiner::new(&mut server).main_loop("0.0.0.0:4000")
 }

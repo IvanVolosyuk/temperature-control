@@ -1,1 +1,83 @@
-/home/dev/Arduino/libraries/my/dev.proto
+syntax = "proto2";
+
+enum MsgType {
+  M_DEBUG = 0;
+  M_WARN = 1;
+  M_ERROR = 2;
+};
+
+message LogMsg {
+  optional MsgType type = 1;
+  optional uint64 ts = 2;
+  optional string text = 3;
+}
+
+message LoggerProto {
+  repeated LogMsg record = 1;
+  optional uint64 last_ts = 2;
+  optional uint64 current_ts = 3;
+}
+
+message LoggerControl {
+  optional bool log_to_serial = 1;
+  optional bool store_log = 2;
+  optional bool send_once = 3;
+  optional bool device_restart = 4;
+  optional bool send_log = 5;
+
+  // Enable experimental code
+  optional bool experiment = 6;
+};
+
+enum RelayState {
+  OFF = 0;
+  ON = 1;
+};
+
+message RelayControl {
+  optional RelayState state = 1;
+  // Add something to make non-zero packet size.
+  optional bool dummy = 2;
+  // Delay state change
+  optional uint32 delay = 3;
+};
+
+enum SensorError {
+  S_TIMEOUT_LOW_PULSE = 150;
+  S_TIMEOUT_HIGH_PULSE = 151;
+  S_TIME_PULSE = 152;
+  S_CHECKSUM = 153;
+  S_BUTTON_EVENT = 160;
+};
+
+enum ButtonState {
+  B_OFF = 0;
+  B_FORCE_ON = 1;
+};
+
+message DeviceInfo {
+  optional uint32 id = 1;
+  optional bool started = 2;
+  optional uint32 offline_sec = 3;
+};
+
+message RelayReport {
+  optional DeviceInfo info = 1;
+  optional bool relay_status = 2;
+};
+
+message SensorReport {
+  optional DeviceInfo info = 10;
+  optional int32 temperature_deci = 2;
+  optional uint32 humidity_deci = 3;
+  optional SensorError sensor_error = 4;
+  optional ButtonState button = 5;
+  reserved 1, 6 to 9;
+};
+
+message DeviceMessage {
+  optional SensorReport sensor = 1;
+  optional RelayReport relay = 2;
+  optional bool format_diag = 3;
+  optional bool heat_on = 4;
+};
