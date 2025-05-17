@@ -228,24 +228,32 @@
 
         // Function to update chart data
         function updateChart(chart, history) {
-            // Keep only the last hour of data (3600 seconds)
-            const oneHourAgo = Date.now() - 3600000;
-            const recentHistory = history.filter(point => point.timestamp * 1000 >= oneHourAgo);
+            return;
+            if (!history || history.length === 0) {
+                // Clear the chart if no data
+                chart.data.datasets[0].data = [];
+                chart.data.datasets[1].data = [];
+                chart.update();
+                return;
+            }
 
-            const currentData = recentHistory.map(point => ({
+            const currentData = history.map(point => ({
                 x: point.timestamp * 1000,
                 y: point.temperature,
                 heater_on: point.heater_on
             }));
 
-            const targetData = recentHistory.map(point => ({
+            const targetData = history.map(point => ({
                 x: point.timestamp * 1000,
                 y: point.target
             }));
 
+            // Update the datasets
             chart.data.datasets[0].data = currentData;
             chart.data.datasets[1].data = targetData;
-            chart.update();
+
+            // Update the chart
+            chart.update('none'); // Use 'none' mode to prevent animation and reduce CPU usage
         }
 
         // Function to update UI for a specific room
@@ -361,7 +369,7 @@
         });
 
         // Update UI every second
-        setInterval(updateUI, 1000);
+        setInterval(updateUI, 60000);
         // Initial update
         updateUI();
     </script>
