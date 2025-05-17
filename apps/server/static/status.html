@@ -18,8 +18,16 @@
         }
         .temperature-chart {
             width: 100%;
-            height: 200px;
+            height: 300px;
+            max-height: 300px;
             margin-top: 1rem;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
         }
     </style>
 </head>
@@ -42,7 +50,9 @@
                 <p class="text-gray-600">Current: <span id="bedroom-current-temp" class="font-medium text-lg">21°C</span></p>
                 <p class="text-gray-600">Target: <span id="bedroom-target-temp" class="font-medium text-lg">22°C</span></p>
             </div>
-            <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
+            <div class="chart-container">
+                <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
+            </div>
         </div>
 
         <!-- Heater Relay -->
@@ -76,7 +86,9 @@
                 <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">19°C</span></p>
                 <p class="text-gray-600">Target: <span id="kids-bedroom-target-temp" class="font-medium text-lg">20°C</span></p>
             </div>
-            <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
+            <div class="chart-container">
+                <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
+            </div>
         </div>
 
         <!-- Heater Relay -->
@@ -156,6 +168,11 @@
                         title: {
                             display: true,
                             text: 'Temperature (°C)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toFixed(1) + '°C';
+                            }
                         }
                     }
                 },
@@ -214,6 +231,11 @@
                         title: {
                             display: true,
                             text: 'Temperature (°C)'
+                        },
+                        ticks: {
+                            callback: function(value) {
+                                return value.toFixed(1) + '°C';
+                            }
                         }
                     }
                 },
@@ -228,7 +250,6 @@
 
         // Function to update chart data
         function updateChart(chart, history) {
-            return;
             if (!history || history.length === 0) {
                 // Clear the chart if no data
                 chart.data.datasets[0].data = [];
