@@ -44,7 +44,7 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
         .route("/", get(serve_status_page))
         .route("/api/status", get(get_status))
         .route("/api/relay", post(control_relay))
-        .nest_service("/static", ServeDir::new("static"))
+        .nest_service("/static", ServeDir::new("apps/server/static"))
         .with_state(app_state);
 
     println!("Starting web server on http://localhost:8080");
@@ -97,4 +97,4 @@ async fn control_relay(
             "error": e.to_string()
         }))
     }
-} 
+}

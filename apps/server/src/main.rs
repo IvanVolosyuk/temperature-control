@@ -362,8 +362,10 @@ impl Server {
                         // Note: confirmation_state.confirmed_on_state is NOT updated here.
                         // It's updated only upon receiving a RelayReport.
                     }
-                    Err(e) => {
-                        print!(" [NRELAY_SEND_ERR: {}]", e); // More informative than just [NRELAY]
+                    Err(_e) => {
+                        print!(" [NRELAY]");
+                        // More informative than just [NRELAY]
+                        //print!(" [NRELAY_SEND_ERR: {}]", _e);
                     }
                 }
             } else {
