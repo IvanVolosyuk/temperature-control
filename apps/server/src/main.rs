@@ -11,7 +11,7 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::schedule::INTERPOLATE_INTERVALS;
-use crate::web::{ServerState, RoomState, create_web_server};
+use crate::web::{ServerState, create_web_server};
 
 // These are from the temperature_protocol crate
 use temperature_protocol::fragment_combiner::{FragmentCombiner, MessageHandler};
@@ -128,7 +128,7 @@ struct Server {
     // Key: Relay hostname (e.g. "esp8266-relay0.local")
     relay_confirmations: HashMap<String, RelayConfirmationState>,
 
-    controls: Arc<Vec<Box<dyn Control>>>,
+    controls: Arc<Vec<Control>>,
     web_state: Arc<RwLock<ServerState>>,
 }
 
@@ -141,10 +141,10 @@ enum PrintHeaderStatus {
 
 impl Server {
     fn new() -> Server {
-        let controls: Vec<Box<dyn Control>> = vec![
-            Box::new(PWMControl::new(-0.36)),
-            Box::new(SimpleControl::new()),
-            Box::new(PWMControl::new(-0.36)),
+        let controls: Vec<Control> = vec![
+            Control::PWM(PWMControl::new(-0.36)),
+            Control::Simple(SimpleControl::new()),
+            Control::PWM(PWMControl::new(-0.36)),
         ];
 
         Server {

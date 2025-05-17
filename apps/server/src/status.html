@@ -83,6 +83,38 @@
     </div>
 
     <script>
+        // Function to update UI for a specific room
+        function updateRoomUI(roomPrefix, data) {
+            // Update sensor availability
+            const sensorAvailability = document.getElementById(`${roomPrefix}-sensor-availability`);
+            sensorAvailability.textContent = data.sensor.available ? 'Available' : 'Unavailable';
+            sensorAvailability.className = `text-${data.sensor.available ? 'green' : 'red'}-600`;
+
+            // Update temperature data
+            document.getElementById(`${roomPrefix}-current-temp`).textContent = `${data.sensor.currentTemp.toFixed(1)}°C`;
+            document.getElementById(`${roomPrefix}-target-temp`).textContent = `${data.sensor.targetTemp.toFixed(1)}°C`;
+
+            // Update relay availability
+            const relayAvailability = document.getElementById(`${roomPrefix}-relay-availability`);
+            relayAvailability.textContent = data.relay.available ? 'Available' : 'Unavailable';
+            relayAvailability.className = `text-${data.relay.available ? 'green' : 'red'}-600`;
+
+            // Update relay state
+            document.getElementById(`${roomPrefix}-relay-state`).textContent = data.relay.state;
+
+            // Update toggle button
+            const toggleButton = document.getElementById(`${roomPrefix}-relay-toggle`);
+            if (data.relay.available) {
+                toggleButton.className = 'px-5 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 text-lg';
+                toggleButton.textContent = `Toggle ${data.relay.state === 'On' ? 'Off' : 'On'}`;
+                toggleButton.disabled = false;
+            } else {
+                toggleButton.className = 'px-5 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1 text-lg';
+                toggleButton.textContent = 'Toggle (Unavailable)';
+                toggleButton.disabled = true;
+            }
+        }
+
         // Function to update UI with real data
         async function updateUI() {
             try {

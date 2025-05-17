@@ -7,6 +7,7 @@ use axum::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
+use serde::Serialize;
 
 // Shared state between temperature server and web server
 #[derive(Clone)]
@@ -14,13 +15,13 @@ pub struct WebState {
     pub server_state: Arc<RwLock<ServerState>>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize)]
 pub struct ServerState {
     pub bedroom: RoomState,
     pub kids_bedroom: RoomState,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize)]
 pub struct RoomState {
     pub sensor_available: bool,
     pub current_temp: f64,
@@ -49,7 +50,6 @@ async fn serve_status_page() -> Html<&'static str> {
     Html(include_str!("status.html"))
 }
 
-#[axum::debug_handler]
 async fn get_status(
     State(state): State<WebState>,
 ) -> axum::Json<ServerState> {
