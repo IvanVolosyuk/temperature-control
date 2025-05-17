@@ -61,10 +61,15 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn serve_status_page() -> Html<&'static str> {
-    // For now, we'll serve the HTML directly from the binary
-    // Later we can move it to a static file
-    Html(include_str!("status.html"))
+async fn serve_status_page() -> Html<String> {
+    // Read the HTML file from the filesystem
+    match tokio::fs::read_to_string("apps/server/static/status.html").await {
+        Ok(content) => Html(content),
+        Err(e) => {
+            eprintln!("Error reading status.html: {}", e);
+            Html("Error loading page".to_string())
+        }
+    }
 }
 
 async fn get_status(
