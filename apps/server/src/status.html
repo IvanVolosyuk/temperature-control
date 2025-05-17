@@ -4,12 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Temperature Control</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.png">
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/static/favicon-512.png">
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#3b82f6">
     <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
+        }
+        .temperature-chart {
+            width: 100%;
+            height: 200px;
+            margin-top: 1rem;
         }
     </style>
 </head>
@@ -32,6 +42,7 @@
                 <p class="text-gray-600">Current: <span id="bedroom-current-temp" class="font-medium text-lg">21°C</span></p>
                 <p class="text-gray-600">Target: <span id="bedroom-target-temp" class="font-medium text-lg">22°C</span></p>
             </div>
+            <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
         </div>
 
         <!-- Heater Relay -->
@@ -65,6 +76,7 @@
                 <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">19°C</span></p>
                 <p class="text-gray-600">Target: <span id="kids-bedroom-target-temp" class="font-medium text-lg">20°C</span></p>
             </div>
+            <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
         </div>
 
         <!-- Heater Relay -->
@@ -84,6 +96,154 @@
     </div>
 
     <script>
+        // Register service worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful');
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+
+        // Initialize charts
+        const bedroomChart = new Chart(document.getElementById('bedroom-temperature-chart'), {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Current Temperature',
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        data: [],
+                        pointRadius: 4,
+                        pointBackgroundColor: function(context) {
+                            const index = context.dataIndex;
+                            const dataset = context.dataset;
+                            return dataset.data[index]?.heater_on ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)';
+                        }
+                    },
+                    {
+                        label: 'Target Temperature',
+                        borderColor: 'rgb(0, 0, 0)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                        data: [],
+                        pointRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Temperature (°C)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    }
+                }
+            }
+        });
+
+        const kidsBedroomChart = new Chart(document.getElementById('kids-bedroom-temperature-chart'), {
+            type: 'line',
+            data: {
+                datasets: [
+                    {
+                        label: 'Current Temperature',
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        data: [],
+                        pointRadius: 4,
+                        pointBackgroundColor: function(context) {
+                            const index = context.dataIndex;
+                            const dataset = context.dataset;
+                            return dataset.data[index]?.heater_on ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)';
+                        }
+                    },
+                    {
+                        label: 'Target Temperature',
+                        borderColor: 'rgb(0, 0, 0)',
+                        backgroundColor: 'rgba(0, 0, 0, 0.1)',
+                        data: [],
+                        pointRadius: 4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'minute',
+                            displayFormats: {
+                                minute: 'HH:mm'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Temperature (°C)'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    }
+                }
+            }
+        });
+
+        // Function to update chart data
+        function updateChart(chart, history) {
+            const currentData = history.map(point => ({
+                x: new Date(point.timestamp * 1000),
+                y: point.temperature,
+                heater_on: point.heater_on
+            }));
+
+            const targetData = history.map(point => ({
+                x: new Date(point.timestamp * 1000),
+                y: point.target
+            }));
+
+            chart.data.datasets[0].data = currentData;
+            chart.data.datasets[1].data = targetData;
+            chart.update();
+        }
+
         // Function to update UI for a specific room
         function updateRoomUI(roomPrefix, data) {
             // Update sensor availability
@@ -114,6 +274,10 @@
                 toggleButton.textContent = 'Toggle (Unavailable)';
                 toggleButton.disabled = true;
             }
+
+            // Update chart
+            const chart = roomPrefix === 'bedroom' ? bedroomChart : kidsBedroomChart;
+            updateChart(chart, data.temperature_history);
         }
 
         // Function to control relay
@@ -159,10 +323,11 @@
                     relay: {
                         available: data.bedroom.relay_available,
                         state: data.bedroom.relay_state ? 'On' : 'Off'
-                    }
+                    },
+                    temperature_history: data.bedroom.temperature_history
                 });
 
-                // Update kids bedroom - using kids-bedroom instead of kidsBedroom
+                // Update kids bedroom
                 updateRoomUI('kids-bedroom', {
                     sensor: {
                         available: data.kids_bedroom.sensor_available,
@@ -172,7 +337,8 @@
                     relay: {
                         available: data.kids_bedroom.relay_available,
                         state: data.kids_bedroom.relay_state ? 'On' : 'Off'
-                    }
+                    },
+                    temperature_history: data.kids_bedroom.temperature_history
                 });
             } catch (error) {
                 console.error('Error fetching status:', error);

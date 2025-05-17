@@ -29,6 +29,15 @@ pub struct RoomState {
     pub target_temp: f64,
     pub relay_available: bool,
     pub relay_state: bool,
+    pub temperature_history: Vec<TemperaturePoint>,
+}
+
+#[derive(Default, Clone, Serialize)]
+pub struct TemperaturePoint {
+    pub timestamp: i64,
+    pub temperature: f64,
+    pub target: f64,
+    pub heater_on: bool,
 }
 
 #[derive(Deserialize)]

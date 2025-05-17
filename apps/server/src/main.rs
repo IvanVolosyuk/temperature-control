@@ -11,7 +11,7 @@ use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use crate::schedule::INTERPOLATE_INTERVALS;
-use crate::web::{ServerState, create_web_server};
+use crate::web::{ServerState, create_web_server, TemperaturePoint};
 
 // These are from the temperature_protocol crate
 use temperature_protocol::fragment_combiner::{FragmentCombiner, MessageHandler};
@@ -258,7 +258,7 @@ impl Server {
         Ok(())
     }
 
-    fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
+    async fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
 
         let header_status = self.print_header(&client_ip_str, report.info.as_ref().unwrap_or(&DeviceInfo::default()));
@@ -279,9 +279,6 @@ impl Server {
                  SensorError::S_TIME_PULSE => "S_TIME_PULSE",
                  SensorError::S_CHECKSUM => "S_CHECKSUM",
                  SensorError::S_BUTTON_EVENT => "S_BUTTON_EVENT",
-                 // protobuf generated enums might not be exhaustive if new values are added
-                 // and this code isn't updated. Defaulting to a string representation of the number.
-                 //_ => "UNKNOWN_SENSOR_ERROR"
             };
             print!("({}) ", error_name);
         } else if report.has_temperature_deci() {
@@ -295,17 +292,16 @@ impl Server {
             return Ok(());
         }
 
-        // This timestamp update was missing if only error was printed.
-        // C++ logic updates it if temp is present.
         self.last_message_timestamp.insert(client_ip_str.clone(), Local::now().timestamp());
-
 
         let mut temp = report.temperature_deci() as f64 * 0.1;
         let humidity = report.humidity_deci() as f64 * 0.1; // For Netdata
 
         let current_time = Local::now();
+        let current_timestamp = current_time.timestamp();
 
         let mut target_temp = temp; // Default target to current temp if not controlled
+        let mut heater_on = false;
 
         if (device_id as usize) < self.controls.len() { // Check if ID is within manageable range
             target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
@@ -325,6 +321,7 @@ impl Server {
                     future_target_temp,
                     current_time
                 );
+                heater_on = mode_on;
                 // Call set_output on the control strategy object itself (for its internal state)
                 control.set_output(mode_on, delay_ms, current_time);
 
@@ -359,13 +356,9 @@ impl Server {
 
                         // Mark as unconfirmed after sending command
                         confirmation_state.unconfirmed = true;
-                        // Note: confirmation_state.confirmed_on_state is NOT updated here.
-                        // It's updated only upon receiving a RelayReport.
                     }
                     Err(_e) => {
                         print!(" [NRELAY]");
-                        // More informative than just [NRELAY]
-                        //print!(" [NRELAY_SEND_ERR: {}]", _e);
                     }
                 }
             } else {
@@ -375,6 +368,30 @@ impl Server {
             // Device ID out of range for configured controls/relays
             print!("{:.1} (unmanaged) ", temp);
             self.last_temp_deci.insert(device_id, temp); // Still store its temp if needed elsewhere
+        }
+
+        // Update temperature history in web state
+        {
+            let mut web_state = self.web_state.write().await;
+            let room_state = if device_id == 0 {
+                &mut web_state.bedroom
+            } else if device_id == 2 {
+                &mut web_state.kids_bedroom
+            } else {
+                return Ok(());
+            };
+
+            // Add new temperature point
+            room_state.temperature_history.push(TemperaturePoint {
+                timestamp: current_timestamp,
+                temperature: temp,
+                target: target_temp,
+                heater_on,
+            });
+
+            // Keep only last hour of data (60 points)
+            let one_hour_ago = current_timestamp - 3600;
+            room_state.temperature_history.retain(|point| point.timestamp >= one_hour_ago);
         }
 
         // Reporting for Netdata collector
@@ -499,7 +516,9 @@ impl MessageHandler<DeviceMessage> for Server {
         let mut known_message_component_found = false;
 
         if let Some(sensor_report) = msg.sensor.as_ref() {
-            self.new_sensor_report(src, sensor_report)?;
+            // Create a runtime for async operations
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(self.new_sensor_report(src, sensor_report))?;
             known_message_component_found = true;
         } else if let Some(relay_report) = msg.relay.as_ref() {
             self.new_relay_report(src, relay_report)?;
@@ -510,9 +529,7 @@ impl MessageHandler<DeviceMessage> for Server {
         }
 
         if !known_message_component_found {
-            // If only heat_on was true, it's handled. If it was an
-            // entirely empty or unrecognized message:
-             println!(
+            println!(
                 "{} Unknown message type from {} (or empty message components). Message: {:?}",
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 src,
