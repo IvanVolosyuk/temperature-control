@@ -1,13 +1,14 @@
 use axum::{
-    routing::get,
+    routing::{get, post},
     Router,
     response::Html,
-    extract::State,
+    extract::{State, Json},
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::services::ServeDir;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
+use temperature_protocol::relay::set_relay;
 
 // Shared state between temperature server and web server
 #[derive(Clone)]
@@ -30,12 +31,19 @@ pub struct RoomState {
     pub relay_state: bool,
 }
 
+#[derive(Deserialize)]
+pub struct RelayControlRequest {
+    room: String,
+    state: bool,
+}
+
 pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
     let app_state = WebState { server_state };
 
     let app = Router::new()
         .route("/", get(serve_status_page))
         .route("/api/status", get(get_status))
+        .route("/api/relay", post(control_relay))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(app_state);
 
@@ -55,4 +63,38 @@ async fn get_status(
 ) -> axum::Json<ServerState> {
     let server_state = state.server_state.read().await;
     axum::Json((*server_state).clone())
+}
+
+async fn control_relay(
+    State(state): State<WebState>,
+    Json(request): Json<RelayControlRequest>,
+) -> axum::Json<serde_json::Value> {
+    let relay_hostname = match request.room.as_str() {
+        "bedroom" => "esp8266-relay0.local",
+        "kids_bedroom" => "esp8266-relay2.local",
+        _ => return axum::Json(serde_json::json!({
+            "success": false,
+            "error": "Invalid room"
+        }))
+    };
+
+    // Use set_relay from relay.rs with 0 delay
+    match set_relay(relay_hostname, request.state, 0) {
+        Ok(_) => {
+            // Update the web state to reflect the change
+            let mut server_state = state.server_state.write().await;
+            match request.room.as_str() {
+                "bedroom" => server_state.bedroom.relay_state = request.state,
+                "kids_bedroom" => server_state.kids_bedroom.relay_state = request.state,
+                _ => {}
+            }
+            axum::Json(serde_json::json!({
+                "success": true
+            }))
+        }
+        Err(e) => axum::Json(serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        }))
+    }
 } 

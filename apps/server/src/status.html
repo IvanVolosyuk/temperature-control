@@ -58,7 +58,7 @@
             <h3 class="text-lg font-medium text-gray-600 mb-2">Temperature Sensor</h3>
             <div id="kids-bedroom-sensor-status" class="flex items-center">
                 <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-gray-500">
-                <span id="kids-bedroom-sensor-availability" class="text-gray-700">Unavailable</span>
+                <span id="kids-bedroom-sensor-availability" class="text-red-600">Unavailable</span>
             </div>
             <div id="kids-bedroom-sensor-data" class="mt-2">
                 <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">19°C</span></p>
@@ -71,7 +71,7 @@
             <h3 class="text-lg font-medium text-gray-600 mb-2">Heater Relay</h3>
             <div id="kids-bedroom-relay-status" class="flex items-center mb-2">
                 <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-gray-500">
-                <span id="kids-bedroom-relay-availability" class="text-gray-700">Unavailable</span>
+                <span id="kids-bedroom-relay-availability" class="text-red-600">Unavailable</span>
             </div>
             <div class="flex items-center justify-between">
                 <p class="text-gray-600">State: <span id="kids-bedroom-relay-state" class="font-medium text-lg">Off</span></p>
@@ -115,6 +115,33 @@
             }
         }
 
+        // Function to control relay
+        async function controlRelay(room, newState) {
+            try {
+                const response = await fetch('/api/relay', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        room: room,
+                        state: newState
+                    })
+                });
+                
+                const result = await response.json();
+                if (!result.success) {
+                    console.error('Failed to control relay:', result.error);
+                    // Refresh UI to show actual state
+                    updateUI();
+                }
+            } catch (error) {
+                console.error('Error controlling relay:', error);
+                // Refresh UI to show actual state
+                updateUI();
+            }
+        }
+
         // Function to update UI with real data
         async function updateUI() {
             try {
@@ -134,8 +161,8 @@
                     }
                 });
 
-                // Update kids bedroom
-                updateRoomUI('kidsBedroom', {
+                // Update kids bedroom - using kids-bedroom instead of kidsBedroom
+                updateRoomUI('kids-bedroom', {
                     sensor: {
                         available: data.kids_bedroom.sensor_available,
                         currentTemp: data.kids_bedroom.current_temp,
@@ -150,6 +177,17 @@
                 console.error('Error fetching status:', error);
             }
         }
+
+        // Add click handlers for toggle buttons
+        document.getElementById('bedroom-relay-toggle').addEventListener('click', function() {
+            const currentState = document.getElementById('bedroom-relay-state').textContent === 'On';
+            controlRelay('bedroom', !currentState);
+        });
+
+        document.getElementById('kids-bedroom-relay-toggle').addEventListener('click', function() {
+            const currentState = document.getElementById('kids-bedroom-relay-state').textContent === 'On';
+            controlRelay('kids_bedroom', !currentState);
+        });
 
         // Update UI every second
         setInterval(updateUI, 1000);
