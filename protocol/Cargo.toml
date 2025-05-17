@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-protobuf = "3.1.0"
+protobuf = "3.7.2"
 anyhow = { version = "1.0", features = ["backtrace"] }
 chrono = "0.4.19"
 

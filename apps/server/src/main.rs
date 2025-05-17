@@ -1,3 +1,5 @@
+pub mod pwm;
+
 use anyhow::Result;
 use std::collections::HashMap;
 use temperature_protocol::fragment_combiner::FragmentCombiner;
@@ -22,6 +24,7 @@ impl MessageHandler<DeviceMessage> for Server {
         _src: std::net::SocketAddr,
         _msg: DeviceMessage,
     ) -> anyhow::Result<()> {
+        print!("{}\n", _msg);
         Ok(())
     }
 }
