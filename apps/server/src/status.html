@@ -140,11 +140,11 @@
                 maintainAspectRatio: false,
                 scales: {
                     x: {
-                        type: 'time',
-                        time: {
-                            unit: 'minute',
-                            displayFormats: {
-                                minute: 'HH:mm'
+                        type: 'linear',
+                        ticks: {
+                            callback: function(value) {
+                                const date = new Date(value);
+                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                             }
                         },
                         title: {
@@ -198,11 +198,11 @@
                 maintainAspectRatio: false,
                 scales: {
                     x: {
-                        type: 'time',
-                        time: {
-                            unit: 'minute',
-                            displayFormats: {
-                                minute: 'HH:mm'
+                        type: 'linear',
+                        ticks: {
+                            callback: function(value) {
+                                const date = new Date(value);
+                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
                             }
                         },
                         title: {
@@ -228,14 +228,18 @@
 
         // Function to update chart data
         function updateChart(chart, history) {
-            const currentData = history.map(point => ({
-                x: new Date(point.timestamp * 1000),
+            // Keep only the last hour of data (3600 seconds)
+            const oneHourAgo = Date.now() - 3600000;
+            const recentHistory = history.filter(point => point.timestamp * 1000 >= oneHourAgo);
+
+            const currentData = recentHistory.map(point => ({
+                x: point.timestamp * 1000,
                 y: point.temperature,
                 heater_on: point.heater_on
             }));
 
-            const targetData = history.map(point => ({
-                x: new Date(point.timestamp * 1000),
+            const targetData = recentHistory.map(point => ({
+                x: point.timestamp * 1000,
                 y: point.target
             }));
 
