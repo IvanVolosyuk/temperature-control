@@ -1,18 +1,17 @@
 use chrono::{DateTime, Local, Duration, TimeZone};
-use std::cmp::{min, max};
 use std::f64;
 
-trait Control {
+pub trait Control {
     fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time: DateTime<Local>) -> (bool, u32);
     fn set_output(&mut self, on: bool, delay: u32, current_time: DateTime<Local>);
 }
 
-struct SimpleControl {
+pub struct SimpleControl {
     is_on: bool,
 }
 
 impl SimpleControl {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { is_on: false }
     }
 }
@@ -34,7 +33,7 @@ impl Control for SimpleControl {
     }
 }
 
-struct PWMControl {
+pub struct PWMControl {
     is_on: bool,
     is_on_time: DateTime<Local>,
     smooth_t: f64,
@@ -45,7 +44,7 @@ struct PWMControl {
 }
 
 impl PWMControl {
-    fn new(initial_offset: f64) -> Self {
+    pub fn new(initial_offset: f64) -> Self {
         let epoch_time = Local.timestamp_opt(0, 0).unwrap();
         Self {
             is_on: false,
