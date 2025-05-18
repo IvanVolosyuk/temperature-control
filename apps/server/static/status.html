@@ -172,7 +172,9 @@
                         ticks: {
                             callback: function(value) {
                                 return value.toFixed(1) + '°C';
-                            }
+                            },
+                            stepSize: 0.1,
+                            maxTicksLimit: 8
                         }
                     }
                 },
@@ -247,7 +249,9 @@
                         ticks: {
                             callback: function(value) {
                                 return value.toFixed(1) + '°C';
-                            }
+                            },
+                            stepSize: 0.1,
+                            maxTicksLimit: 8
                         }
                     }
                 },
