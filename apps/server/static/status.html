@@ -180,6 +180,18 @@
                     legend: {
                         display: true,
                         position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const timestamp = context[0].parsed.x;
+                                const date = new Date(timestamp);
+                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                            },
+                            label: function(context) {
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
+                            }
+                        }
                     }
                 }
             }
@@ -243,6 +255,18 @@
                     legend: {
                         display: true,
                         position: 'top'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                const timestamp = context[0].parsed.x;
+                                const date = new Date(timestamp);
+                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                            },
+                            label: function(context) {
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
+                            }
+                        }
                     }
                 }
             }
