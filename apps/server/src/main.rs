@@ -346,9 +346,11 @@ impl Server {
                     future_target_temp,
                     current_time
                 );
-                heater_on = mode_on;
                 // Call set_output on the control strategy object itself (for its internal state)
                 control_strategy.set_output(mode_on, delay_ms, current_time);
+
+                // If delay is not zero, than mode_on is still opposite for now
+                heater_on = mode_on ^ (delay_ms == 0);
 
                 // Now, command the actual relay and log according to C++ logic
                 let relay_hostname = RELAYS[device_id as usize];
