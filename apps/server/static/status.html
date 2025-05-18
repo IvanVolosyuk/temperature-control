@@ -326,7 +326,7 @@
                         state: newState
                     })
                 });
-                
+
                 const result = await response.json();
                 if (!result.success) {
                     console.error('Failed to control relay:', result.error);
@@ -390,7 +390,7 @@
         });
 
         // Update UI every second
-        setInterval(updateUI, 60000);
+        setInterval(updateUI, 1000);
         // Initial update
         updateUI();
     </script>
