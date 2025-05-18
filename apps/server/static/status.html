@@ -11,6 +11,8 @@
     <meta name="theme-color" content="#3b82f6">
     <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         body {
@@ -191,7 +193,9 @@
                             title: {
                                 display: true,
                                 text: 'Time'
-                            }
+                            },
+                            min: Date.now() - 3600 * 1000,  // Show last 1 hour
+                            max: Date.now()
                         },
                         y: {
                             title: {
@@ -203,11 +207,26 @@
                                     return value.toFixed(1) + '°C';
                                 },
                                 stepSize: 0.1,
-                                maxTicksLimit: 8
+                                maxTicksLimit: 6
                             }
                         }
                     },
                     plugins: {
+                        zoom: {
+                            pan: {
+                                enabled: true,
+                                mode: 'x'
+                            },
+                            zoom: {
+                                mode: 'x',
+                                pinch: {
+                                    enabled: true
+                                },
+                                wheel: {
+                                    enabled: true
+                                }
+                            }
+                        },
                         legend: {
                             display: true,
                             position: 'top'
@@ -250,6 +269,19 @@
             // Update the datasets
             chart.data.datasets[0].data = currentData;
             chart.data.datasets[1].data = targetData;
+            const now = Date.now();
+            var dt = now - currentData[0].x + 20000;
+            var last = now;
+            if (currentData.length > 0) {
+              last = currentData[currentData.length - 1].x;
+            }
+            if (chart.options.scales.x.max - chart.options.scales.x.min > dt) {
+               chart.options.scales.x.min = chart.options.scales.x.max - dt;
+            }
+            var offset = (chart.options.scales.x.max - chart.options.scales.x.min) * 0.05;
+            if (last - chart.options.scales.x.max < offset * 4) {
+              chart.options.scales.x.max = last + offset;
+            }
 
             // Update the chart
             chart.update(); // Use 'none' mode to prevent animation and reduce CPU usage
