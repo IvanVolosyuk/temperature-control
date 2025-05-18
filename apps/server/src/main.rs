@@ -9,7 +9,8 @@ use std::fs::{File, rename};
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
+use tokio::sync::RwLock as AsyncRwLock;
 use crate::schedule::INTERPOLATE_INTERVALS;
 use crate::web::{ServerState, create_web_server, TemperaturePoint};
 
@@ -128,8 +129,8 @@ struct Server {
     // Key: Relay hostname (e.g. "esp8266-relay0.local")
     relay_confirmations: HashMap<String, RelayConfirmationState>,
 
-    controls: Arc<Vec<Control>>,
-    web_state: Arc<RwLock<ServerState>>,
+    controls: Arc<RwLock<Vec<Control>>>,
+    web_state: Arc<AsyncRwLock<ServerState>>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -152,8 +153,8 @@ impl Server {
             last_temp_deci: HashMap::new(),
             last_relay_on_status: HashMap::new(),
             relay_confirmations: HashMap::new(),
-            controls: Arc::new(controls),
-            web_state: Arc::new(RwLock::new(ServerState::default())),
+            controls: Arc::new(RwLock::new(controls)),
+            web_state: Arc::new(AsyncRwLock::new(ServerState::default())),
         }
     }
 
@@ -176,7 +177,7 @@ impl Server {
         // Note: %e pads with space for single digit day, %d pads with 0. ctime uses space.
         let formatted_time = current_time.format("%a %b %_d %H:%M:%S %Y").to_string(); // %_d for space padding
 
-        print!("{} [{:<3}]: ", formatted_time, device_id); // Left align ID in 3 spaces for consistency
+        print!("{} [{}]: ", formatted_time, device_id);
 
         let mut status = PrintHeaderStatus::Ok;
         if info.started() {
@@ -328,7 +329,7 @@ impl Server {
         let mut target_temp = temp; // Default target to current temp if not controlled
         let mut heater_on = false;
 
-        if (device_id as usize) < self.controls.len() { // Check if ID is within manageable range
+        if (device_id as usize) < INTERPOLATE_INTERVALS.len() { // Check if ID is within manageable range
             target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
 
             temp += CORRECTION[device_id as usize];
@@ -338,9 +339,8 @@ impl Server {
             // FIXME: add 10 minutes to future time
             let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
 
-            if let Some(control_strategy) = self.controls.get(device_id as usize) {
-                let mut control = control_strategy.clone();
-                let (mode_on, delay_ms) = control.get_mode(
+            if let Some(control_strategy) = self.controls.write().unwrap().get_mut(device_id as usize) {
+                let (mode_on, delay_ms) = control_strategy.get_mode(
                     temp,
                     target_temp,
                     future_target_temp,
@@ -348,7 +348,7 @@ impl Server {
                 );
                 heater_on = mode_on;
                 // Call set_output on the control strategy object itself (for its internal state)
-                control.set_output(mode_on, delay_ms, current_time);
+                control_strategy.set_output(mode_on, delay_ms, current_time);
 
                 // Now, command the actual relay and log according to C++ logic
                 let relay_hostname = RELAYS[device_id as usize];
