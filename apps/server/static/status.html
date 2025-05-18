@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Temperature Control</title>
-    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="icon" type="image/png" sizes="64x64" href="/static/favicon.png">
     <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="/static/favicon-512.png">
     <link rel="manifest" href="/static/manifest.json">
@@ -29,6 +29,29 @@
             max-width: 800px;
             margin: 0 auto;
         }
+
+        /* Dark mode styles */
+        @media (prefers-color-scheme: darkXX) {
+            body {
+                background-color: #1a202c; /* Dark background */
+                color: #e2e8f0; /* Light text */
+            }
+            .bg-white {
+                background-color: #2d3748; /* Darker card background */
+            }
+            .text-gray-800 {
+                color: #cbd5e0; /* Light heading text */
+            }
+            .text-gray-700 {
+                color: #cbd5e0; /* Light text */
+            }
+            .text-gray-600 {
+                color: #a0aec0; /* Lighter text */
+            }
+            .border-gray-200 {
+                border-color: #4a5568; /* Darker border */
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-100 p-4">
@@ -50,9 +73,6 @@
                 <p class="text-gray-600">Current: <span id="bedroom-current-temp" class="font-medium text-lg">N/A</span></p>
                 <p class="text-gray-600">Target: <span id="bedroom-target-temp" class="font-medium text-lg">N/A</span></p>
             </div>
-            <div class="chart-container">
-                <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
-            </div>
         </div>
 
         <!-- Heater Relay -->
@@ -69,6 +89,9 @@
                 </button>
             </div>
         </div>
+            <div class="chart-container">
+                <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
+            </div>
     </div>
 
     <!-- Kids Bedroom -->
@@ -86,9 +109,6 @@
                 <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">N/A</span></p>
                 <p class="text-gray-600">Target: <span id="kids-bedroom-target-temp" class="font-medium text-lg">N/A</span></p>
             </div>
-            <div class="chart-container">
-                <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
-            </div>
         </div>
 
         <!-- Heater Relay -->
@@ -104,6 +124,9 @@
                     Toggle On (Unavailable)
                 </button>
             </div>
+        </div>
+        <div class="chart-container">
+            <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
         </div>
     </div>
 
@@ -121,170 +144,97 @@
             });
         }
 
-        // Initialize charts
-        const bedroomChart = new Chart(document.getElementById('bedroom-temperature-chart'), {
-            type: 'line',
-            data: {
-                datasets: [
-                    {
-                        label: 'Current Temperature',
-                        borderColor: 'rgb(59, 130, 146, 0.1)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        data: [],
-                        pointRadius: 4,
-                        pointBackgroundColor: function(context) {
-                            const index = context.dataIndex;
-                            const dataset = context.dataset;
-                            return dataset.data[index]?.heater_on ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)';
-                        }
-                    },
-                    {
-                        label: 'Target Temperature',
-                        borderColor: 'rgb(150, 150, 150)',
-                        backgroundColor: 'rgba(150, 150, 150, 0.1)',
-                        data: [],
-                        pointRadius: 4
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        type: 'linear',
-                        ticks: {
-                            callback: function(value) {
-                                const date = new Date(value);
-                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        var makeSettings = function() {
+            return {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Current Temperature',
+                            borderColor: 'rgb(59, 130, 146, 0.25)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                            data: [],
+                            pointRadius: 4,
+                            pointBackgroundColor: function(context) {
+                                const index = context.dataIndex;
+                                const dataset = context.dataset;
+                                return dataset.data[index]?.heater_on ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)';
                             }
                         },
-                        title: {
-                            display: true,
-                            text: 'Time'
+                        {
+                            label: 'Target Temperature',
+                            borderColor: 'rgb(150, 150, 150, 0.4)',
+                            backgroundColor: 'rgba(50, 50, 50, 0.3)',
+                            data: [],
+                            pointRadius: 1
                         }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Temperature (°C)'
-                        },
-                        ticks: {
-                            callback: function(value) {
-                                return value.toFixed(1) + '°C';
-                            },
-                            stepSize: 0.1,
-                            maxTicksLimit: 8
-                        }
-                    }
+                    ]
                 },
-                plugins: {
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
                     legend: {
-                        display: true,
-                        position: 'top'
+                        labels: {
+                            fontColor: "blue",
+                            fontSize: 18
+                        }
                     },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                const timestamp = context[0].parsed.x;
-                                const date = new Date(timestamp);
-                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            ticks: {
+                                callback: function(value) {
+                                    const date = new Date(value);
+                                    return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+                                }
                             },
-                            label: function(context) {
-                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
+                            title: {
+                                display: true,
+                                text: 'Time'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Temperature (°C)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return value.toFixed(1) + '°C';
+                                },
+                                stepSize: 0.1,
+                                maxTicksLimit: 8
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function(context) {
+                                    const timestamp = context[0].parsed.x;
+                                    const date = new Date(timestamp);
+                                    return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+                                },
+                                label: function(context) {
+                                    return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
+                                }
                             }
                         }
                     }
                 }
-            }
-        });
+            };
+        }
 
-        const kidsBedroomChart = new Chart(document.getElementById('kids-bedroom-temperature-chart'), {
-            type: 'line',
-            data: {
-                datasets: [
-                    {
-                        label: 'Current Temperature',
-                        borderColor: 'rgb(59, 130, 146, 0.1)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        data: [],
-                        pointRadius: 4,
-                        pointBackgroundColor: function(context) {
-                            const index = context.dataIndex;
-                            const dataset = context.dataset;
-                            return dataset.data[index]?.heater_on ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)';
-                        }
-                    },
-                    {
-                        label: 'Target Temperature',
-                        borderColor: 'rgb(150, 150, 150)',
-                        backgroundColor: 'rgba(150, 150, 150, 0.1)',
-                        data: [],
-                        pointRadius: 4
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        type: 'linear',
-                        ticks: {
-                            callback: function(value) {
-                                const date = new Date(value);
-                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                            }
-                        },
-                        title: {
-                            display: true,
-                            text: 'Time'
-                        }
-                    },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Temperature (°C)'
-                        },
-                        ticks: {
-                            callback: function(value) {
-                                return value.toFixed(1) + '°C';
-                            },
-                            stepSize: 0.1,
-                            maxTicksLimit: 8
-                        }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        display: true,
-                        position: 'top'
-                    },
-                    tooltip: {
-                        callbacks: {
-                            title: function(context) {
-                                const timestamp = context[0].parsed.x;
-                                const date = new Date(timestamp);
-                                return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                            },
-                            label: function(context) {
-                                return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
+        // Initialize charts
+        const bedroomChart = new Chart(document.getElementById('bedroom-temperature-chart'), makeSettings());
+        const kidsBedroomChart = new Chart(document.getElementById('kids-bedroom-temperature-chart'), makeSettings());
 
         // Function to update chart data
         function updateChart(chart, history) {
-            if (!history || history.length === 0) {
-                // Clear the chart if no data
-                chart.data.datasets[0].data = [];
-                chart.data.datasets[1].data = [];
-                chart.update();
-                return;
-            }
 
             const currentData = history.map(point => ({
                 x: point.timestamp * 1000,
@@ -302,7 +252,7 @@
             chart.data.datasets[1].data = targetData;
 
             // Update the chart
-            chart.update('none'); // Use 'none' mode to prevent animation and reduce CPU usage
+            chart.update(); // Use 'none' mode to prevent animation and reduce CPU usage
         }
 
         // Function to update UI for a specific room
@@ -373,7 +323,6 @@
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
-                
                 // Update bedroom
                 updateRoomUI('bedroom', {
                     sensor: {
