@@ -5,10 +5,12 @@ const STATIC_ASSETS = [
     '/static/favicon-192.png',
     '/static/favicon-512.png',
     '/static/thermometer.svg',
-    'https://unpkg.com/@tailwindcss/browser@4',
-    'https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap',
-    'https://unpkg.com/lucide-static@latest/icons/thermometer.svg',
-    'https://unpkg.com/lucide-static@latest/icons/power.svg'
+    '/static/power.svg'
+    '/static/browser@4',
+    '/static/css2',
+    '/static/chart.js',
+    '/static/hammer.min.js',
+    '/static/chartjs-plugin-zoom',
 ];
 
 // Install event - cache static assets
