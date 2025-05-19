@@ -520,7 +520,7 @@
                 const params = new URLSearchParams();
 
                 // Only add last_update if we have timestamps for both rooms
-                if (lastUpdateTimestamp.bedroom && lastUpdateTimestamp.kids_bedroom) {
+                if (lastUpdateTimestamp.bedroom || lastUpdateTimestamp.kids_bedroom) {
                     // Use the most recent timestamp to ensure we don't miss any data
                     const latestTimestamp = Math.max(lastUpdateTimestamp.bedroom, lastUpdateTimestamp.kids_bedroom);
                     params.append('last_update', latestTimestamp.toString());

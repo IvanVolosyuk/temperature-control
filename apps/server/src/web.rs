@@ -81,7 +81,7 @@ async fn get_status(
     State(state): State<WebState>,
     Query(query): Query<StatusQuery>,
 ) -> axum::Json<ServerState> {
-    let mut server_state = state.server_state.read().await;
+    let server_state = state.server_state.read().await;
     let mut response_state = (*server_state).clone();
 
     // If last_update timestamp is provided, filter temperature history
@@ -89,7 +89,7 @@ async fn get_status(
         // Filter bedroom temperature history
         response_state.bedroom.temperature_history = server_state.bedroom.temperature_history
             .iter()
-            .filter(|point| point.timestamp > last_update)
+            .filter(|point| point.timestamp >= last_update)
             .cloned()
             .collect();
 

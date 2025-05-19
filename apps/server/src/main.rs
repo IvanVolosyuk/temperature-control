@@ -210,9 +210,9 @@ impl Server {
             heater_on : header_on,
         });
 
-        // Keep only last 6 hours of data (60 points)
-        let one_hour_ago = current_timestamp - 3600 * 6;
-        room_state.temperature_history.retain(|point| point.timestamp >= one_hour_ago);
+        // Keep only last 48 hours of data
+        let cutout = current_timestamp - 3600 * 48;
+        room_state.temperature_history.retain(|point| point.timestamp >= cutout);
         return Ok(());
     }
 
