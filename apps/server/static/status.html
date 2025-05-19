@@ -28,31 +28,8 @@
             position: relative;
             height: 300px;
             width: 100%;
-            max-width: 800px;
+            max-width: 1400px;
             margin: 0 auto;
-        }
-
-        /* Dark mode styles */
-        @media (prefers-color-scheme: darkXX) {
-            body {
-                background-color: #1a202c; /* Dark background */
-                color: #e2e8f0; /* Light text */
-            }
-            .bg-white {
-                background-color: #2d3748; /* Darker card background */
-            }
-            .text-gray-800 {
-                color: #cbd5e0; /* Light heading text */
-            }
-            .text-gray-700 {
-                color: #cbd5e0; /* Light text */
-            }
-            .text-gray-600 {
-                color: #a0aec0; /* Lighter text */
-            }
-            .border-gray-200 {
-                border-color: #4a5568; /* Darker border */
-            }
         }
     </style>
 </head>
@@ -107,7 +84,7 @@
                 <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-gray-500">
                 <span id="kids-bedroom-sensor-availability" class="text-red-600">Unavailable</span>
             </div>
-            <div id="kids-bedroom-sensor-data" class="mt-2">
+                <div id="kids-bedroom-sensor-data" class="mt-2">
                 <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">N/A</span></p>
                 <p class="text-gray-600">Target: <span id="kids-bedroom-target-temp" class="font-medium text-lg">N/A</span></p>
             </div>
