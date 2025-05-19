@@ -10,7 +10,6 @@ use std::io::{Write, stdout};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::sync::RwLock;
-use tokio::sync::RwLock as AsyncRwLock;
 use crate::schedule::INTERPOLATE_INTERVALS;
 use crate::web::{ServerState, create_web_server, TemperaturePoint};
 
@@ -129,8 +128,8 @@ struct Server {
     // Key: Relay hostname (e.g. "esp8266-relay0.local")
     relay_confirmations: HashMap<String, RelayConfirmationState>,
 
-    controls: Arc<RwLock<Vec<Control>>>,
-    web_state: Arc<AsyncRwLock<ServerState>>,
+    controls: Vec<Box<dyn Control>>,
+    web_state: Arc<RwLock<ServerState>>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -142,10 +141,10 @@ enum PrintHeaderStatus {
 
 impl Server {
     fn new() -> Server {
-        let controls: Vec<Control> = vec![
-            Control::PWM(PWMControl::new(-0.36)),
-            Control::Simple(SimpleControl::new()),
-            Control::PWM(PWMControl::new(-0.36)),
+        let controls: Vec<Box<dyn Control>> = vec![
+            Box::new(PWMControl::new(-0.36)),
+            Box::new(SimpleControl::new()),
+            Box::new(PWMControl::new(-0.36)),
         ];
 
         Server {
@@ -153,8 +152,8 @@ impl Server {
             last_temp_deci: HashMap::new(),
             last_relay_on_status: HashMap::new(),
             relay_confirmations: HashMap::new(),
-            controls: Arc::new(RwLock::new(controls)),
-            web_state: Arc::new(AsyncRwLock::new(ServerState::default())),
+            controls,
+            web_state: Arc::new(RwLock::new(ServerState::default())),
         }
     }
 
@@ -191,9 +190,9 @@ impl Server {
         status
     }
 
-    async fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool) -> Result<()> {
+    fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool) -> Result<()> {
         //Update temperature history in web state
-        let mut web_state = self.web_state.write().await;
+        let mut web_state = self.web_state.write().unwrap();
         let room_state = if device_id == 0 {
             &mut web_state.bedroom
         } else if device_id == 2 {
@@ -216,8 +215,8 @@ impl Server {
         return Ok(());
     }
 
-    async fn update_web_state(&self) {
-        let mut state = self.web_state.write().await;
+    fn update_web_state(&self) {
+        let mut state = self.web_state.write().unwrap();
 
         // Update bedroom state
         state.bedroom.sensor_available = self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP)
@@ -272,15 +271,7 @@ impl Server {
             if header_status == PrintHeaderStatus::HasStatusUpdate { "\n" } else { "\r" }
         );
         stdout().flush()?;
-
-        // Update web state after processing the report
-        tokio::spawn({
-            let server = self.clone();
-            async move {
-                server.update_web_state().await;
-            }
-        });
-
+        self.update_web_state();
         Ok(())
     }
 
@@ -336,60 +327,83 @@ impl Server {
             print!("{:.1} (target {:.1}) ", temp, target_temp);
             self.last_temp_deci.insert(device_id, temp);
 
-            // FIXME: add 10 minutes to future time
-            let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
+            // Check if heater is disabled
+            let web_state = self.web_state.read().unwrap();
+            let room_state = if device_id == 0 {
+                &web_state.bedroom
+            } else if device_id == 2 {
+                &web_state.kids_bedroom
+            } else {
+                &web_state.bedroom // Default to bedroom, won't be used
+            };
 
-            if let Some(control_strategy) = self.controls.write().unwrap().get_mut(device_id as usize) {
-                let (mode_on, delay_ms) = control_strategy.get_mode(
-                    temp,
-                    target_temp,
-                    future_target_temp,
-                    current_time
-                );
-                // Call set_output on the control strategy object itself (for its internal state)
-                control_strategy.set_output(mode_on, delay_ms, current_time);
+            let is_disabled = room_state.disabled_until
+                .map(|until| current_timestamp < until)
+                .unwrap_or(false);
 
-                // If delay is not zero, than mode_on is still opposite for now
-                heater_on = mode_on ^ (delay_ms != 0);
-
-                // Now, command the actual relay and log according to C++ logic
+            if is_disabled {
+                print!("[DISABLED] ");
+                // Ensure heater is off
                 let relay_hostname = RELAYS[device_id as usize];
-
-                // C++ Relay::set_relay logging part 1: Print ON/OFF if delay is 0
-                if delay_ms == 0 {
-                    print!("{}", if mode_on { "ON" } else { "OFF" });
-                }
-
-                // Send the command
-                match set_relay(relay_hostname, mode_on, delay_ms) {
-                    Ok(_) => {
-                        let confirmation_state = self.relay_confirmations
-                            .entry(relay_hostname.to_string())
-                            .or_default();
-
-                        // C++ Relay::set_relay logging part 2: Print status based on confirmation
-                        if confirmation_state.unconfirmed {
-                            print!(" [UNCONFIRMED]");
-                        } else if delay_ms != 0 {
-                            // Print current *confirmed* state before new command with delay
-                            print!(" {}", if confirmation_state.confirmed_on_state { "*ON" } else { "*OFF" });
-                        }
-
-                        if delay_ms != 0 {
-                            print!(" ({:.1}m->{})",
-                                delay_ms as f64 / 60_000.0,
-                                if mode_on { "ON" } else { "OFF" });
-                        }
-
-                        // Mark as unconfirmed after sending command
-                        confirmation_state.unconfirmed = true;
-                    }
-                    Err(_e) => {
-                        print!(" [NRELAY]");
-                    }
+                if let Err(_e) = set_relay(relay_hostname, false, 0) {
+                    print!(" [NRELAY]");
                 }
             } else {
-                print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
+                // FIXME: add 10 minutes to future time
+                let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
+
+                if let Some(control_strategy) = self.controls.get_mut(device_id as usize) {
+                    let (mode_on, delay_ms) = control_strategy.get_mode(
+                        temp,
+                        target_temp,
+                        future_target_temp,
+                        current_time
+                    );
+                    // Call set_output on the control strategy object itself (for its internal state)
+                    control_strategy.set_output(mode_on, delay_ms, current_time);
+
+                    // If delay is not zero, than mode_on is still opposite for now
+                    heater_on = mode_on ^ (delay_ms != 0);
+
+                    // Now, command the actual relay and log according to C++ logic
+                    let relay_hostname = RELAYS[device_id as usize];
+
+                    // C++ Relay::set_relay logging part 1: Print ON/OFF if delay is 0
+                    if delay_ms == 0 {
+                        print!("{}", if mode_on { "ON" } else { "OFF" });
+                    }
+
+                    // Send the command
+                    match set_relay(relay_hostname, mode_on, delay_ms) {
+                        Ok(_) => {
+                            let confirmation_state = self.relay_confirmations
+                                .entry(relay_hostname.to_string())
+                                .or_default();
+
+                            // C++ Relay::set_relay logging part 2: Print status based on confirmation
+                            if confirmation_state.unconfirmed {
+                                print!(" [UNCONFIRMED]");
+                            } else if delay_ms != 0 {
+                                // Print current *confirmed* state before new command with delay
+                                print!(" {}", if confirmation_state.confirmed_on_state { "*ON" } else { "*OFF" });
+                            }
+
+                            if delay_ms != 0 {
+                                print!(" ({:.1}m->{})",
+                                    delay_ms as f64 / 60_000.0,
+                                    if mode_on { "ON" } else { "OFF" });
+                            }
+
+                            // Mark as unconfirmed after sending command
+                            confirmation_state.unconfirmed = true;
+                        }
+                        Err(_e) => {
+                            print!(" [NRELAY]");
+                        }
+                    }
+                } else {
+                    print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
+                }
             }
         } else {
             // Device ID out of range for configured controls/relays
@@ -398,12 +412,7 @@ impl Server {
         }
 
         // Update web state after processing the report
-        tokio::spawn({
-            let server = self.clone();
-            async move {
-                let _ = server.update_history(device_id, current_timestamp, temp, target_temp, heater_on).await;
-            }
-        });
+        let _ = self.update_history(device_id, current_timestamp, temp, target_temp, heater_on);
 
         // Reporting for Netdata collector
         let tmp_file_path_str = format!("{}/new{}", NETDATA_PATH_PREFIX, device_id);
@@ -444,15 +453,7 @@ impl Server {
 
         println!(); // End the line for sensor report
         stdout().flush()?;
-
-        // Update web state after processing the report
-        tokio::spawn({
-            let server = self.clone();
-            async move {
-                server.update_web_state().await;
-            }
-        });
-
+        self.update_web_state();
         Ok(())
     }
 
@@ -501,20 +502,6 @@ impl Server {
             }
         }
         Ok(())
-    }
-}
-
-// Make Server cloneable for async tasks
-impl Clone for Server {
-    fn clone(&self) -> Self {
-        Server {
-            last_message_timestamp: self.last_message_timestamp.clone(),
-            last_temp_deci: self.last_temp_deci.clone(),
-            last_relay_on_status: self.last_relay_on_status.clone(),
-            relay_confirmations: self.relay_confirmations.clone(),
-            controls: self.controls.clone(),
-            web_state: self.web_state.clone(),
-        }
     }
 }
 

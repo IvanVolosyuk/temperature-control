@@ -1,35 +1,18 @@
 use chrono::{DateTime, Local, Duration, TimeZone};
 use std::f64;
 
-#[derive(Clone)]
-pub enum Control {
-    Simple(SimpleControl),
-    PWM(PWMControl),
-}
-
-impl Control {
-    pub fn get_mode(
+pub trait Control {
+    fn get_mode(
         &mut self,
         current_temp: f64,
         target_temp: f64,
         future_target_temp: f64,
         current_time: DateTime<Local>,
-    ) -> (bool, u32) {
-        match self {
-            Control::Simple(control) => control.get_mode(current_temp, target_temp, future_target_temp, current_time),
-            Control::PWM(control) => control.get_mode(current_temp, target_temp, future_target_temp, current_time),
-        }
-    }
+    ) -> (bool, u32);
 
-    pub fn set_output(&mut self, mode_on: bool, delay_ms: u32, current_time: DateTime<Local>) {
-        match self {
-            Control::Simple(control) => control.set_output(mode_on, delay_ms, current_time),
-            Control::PWM(control) => control.set_output(mode_on, delay_ms, current_time),
-        }
-    }
+    fn set_output(&mut self, mode_on: bool, delay_ms: u32, current_time: DateTime<Local>);
 }
 
-#[derive(Clone)]
 pub struct SimpleControl {
     is_on: bool,
 }
@@ -38,7 +21,9 @@ impl SimpleControl {
     pub fn new() -> Self {
         Self { is_on: false }
     }
+}
 
+impl Control for SimpleControl {
     fn get_mode(&mut self, temp: f64, target: f64, _future_target: f64, _current_time: DateTime<Local>) -> (bool, u32) {
         let dt = temp - target;
         if dt > 0.1 {
@@ -55,7 +40,6 @@ impl SimpleControl {
     }
 }
 
-#[derive(Clone)]
 pub struct PWMControl {
     is_on: bool,
     is_on_time: DateTime<Local>,
@@ -93,6 +77,10 @@ impl PWMControl {
         offset = ((avg_interval - 1.0) * self.initial_offset + offset) / avg_interval;
         self.initial_offset = offset.clamp(-0.7, 0.3);
     }
+
+}
+
+impl Control for PWMControl {
 
     fn get_mode(&mut self, temp: f64, target: f64, future_target: f64, current_time: DateTime<Local>) -> (bool, u32) {
         self.last_sensor_temp = temp;

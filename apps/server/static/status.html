@@ -136,12 +136,6 @@
             });
         }
 
-        // Client-side state for heater disable timers
-        let bedroomHeaterDisabledUntil = null;
-        let kidsBedroomHeaterDisabledUntil = null;
-        let bedroomDisableTimeoutId = null;
-        let kidsBedroomDisableTimeoutId = null;
-
         var makeSettings = function() {
             const isDarkMode = true;
             // window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -365,7 +359,7 @@
 
         function updateRoomUI(roomPrefix, data) {
             const isBedroom = roomPrefix === 'bedroom';
-            let heaterDisabledUntil = isBedroom ? bedroomHeaterDisabledUntil : kidsBedroomHeaterDisabledUntil;
+            let heaterDisabledUntil = data.disabled_until * 1000;
 
             // Sensor Elements
             const sensorTextEl = document.getElementById(`${roomPrefix}-sensor-text`);
@@ -416,16 +410,10 @@
                     const timeLeft = Math.max(0, Math.round((heaterDisabledUntil - Date.now()) / 1000));
                     const minutes = Math.floor(timeLeft / 60);
                     const seconds = timeLeft % 60;
-                    timerStatusEl.textContent = `Automatic restore in: ${minutes}m ${seconds}s`;
+                    timerStatusEl.textContent = `Automatic restore in: ${minutes} minites`;
                     timerStatusEl.classList.remove('hidden');
 
                 } else { // Not disabled, or timer expired
-                    if (heaterDisabledUntil && Date.now() >= heaterDisabledUntil) { // Timer just expired
-                        if (isBedroom) bedroomHeaterDisabledUntil = null; else kidsBedroomHeaterDisabledUntil = null;
-                        if (isBedroom && bedroomDisableTimeoutId) clearTimeout(bedroomDisableTimeoutId);
-                        if (!isBedroom && kidsBedroomDisableTimeoutId) clearTimeout(kidsBedroomDisableTimeoutId);
-                    }
-
                     relayTextEl.textContent = `Current: ${data.relay.state.toUpperCase()}`;
                     relayTextEl.className = 'text-lg text-green-400';
 
@@ -477,40 +465,41 @@
         }
 
         function handleDisableHeater(roomPrefix) {
-            const duration = 2 * 60 * 60 * 1000; // 2 hours
-            const now = Date.now();
-            if (roomPrefix === 'bedroom') {
-                bedroomHeaterDisabledUntil = now + duration;
-                if (bedroomDisableTimeoutId) clearTimeout(bedroomDisableTimeoutId);
-                bedroomDisableTimeoutId = setTimeout(() => {
-                    bedroomHeaterDisabledUntil = null;
-                    updateUI();
-                }, duration);
-                // Turn off heater if it's on
-                const currentState = document.getElementById('bedroom-relay-text').textContent.includes('ON');
-                if (currentState) controlRelay('bedroom', false); else updateUI();
-
-            } else if (roomPrefix === 'kids-bedroom') {
-                kidsBedroomHeaterDisabledUntil = now + duration;
-                 if (kidsBedroomDisableTimeoutId) clearTimeout(kidsBedroomDisableTimeoutId);
-                kidsBedroomDisableTimeoutId = setTimeout(() => {
-                    kidsBedroomHeaterDisabledUntil = null;
-                    updateUI();
-                }, duration);
-                const currentState = document.getElementById('kids-bedroom-relay-text').textContent.includes('ON');
-                 if (currentState) controlRelay('kids-bedroom', false); else updateUI();
-            }
+            const apiRoomName = roomPrefix === 'kids-bedroom' ? 'kids_bedroom' : roomPrefix;
+            fetch('/api/disable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ room: apiRoomName, disable: true })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) {
+                    console.error('Failed to disable heater:', result.error);
+                }
+                updateUI();
+            })
+            .catch(error => {
+                console.error('Error disabling heater:', error);
+            });
         }
 
         function handleRestoreHeater(roomPrefix) {
-            if (roomPrefix === 'bedroom') {
-                bedroomHeaterDisabledUntil = null;
-                if (bedroomDisableTimeoutId) clearTimeout(bedroomDisableTimeoutId);
-            } else if (roomPrefix === 'kids-bedroom') {
-                kidsBedroomHeaterDisabledUntil = null;
-                 if (kidsBedroomDisableTimeoutId) clearTimeout(kidsBedroomDisableTimeoutId);
-            }
-            updateUI();
+            const apiRoomName = roomPrefix === 'kids-bedroom' ? 'kids_bedroom' : roomPrefix;
+            fetch('/api/disable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ room: apiRoomName, disable: false })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (!result.success) {
+                    console.error('Failed to restore heater:', result.error);
+                }
+                updateUI();
+            })
+            .catch(error => {
+                console.error('Error restoring heater:', error);
+            });
         }
 
         async function updateUI() {
@@ -540,6 +529,9 @@
                     lastUpdateTimestamp.kids_bedroom = lastPoint.timestamp;
                 }
 
+                bedroomHeaterDisabledUntil = data.bedroom.disabled_until;
+                kidsBedroomHeaterDisabledUntil = data.bedroom.disabled_until;
+
                 updateRoomUI('bedroom', {
                     sensor: {
                         available: data.bedroom.sensor_available,
@@ -550,7 +542,9 @@
                         available: data.bedroom.relay_available,
                         state: data.bedroom.relay_state ? 'On' : 'Off'
                     },
-                    temperature_history: data.bedroom.temperature_history
+                    temperature_history: data.bedroom.temperature_history,
+                    disabled_until: data.bedroom.disabled_until
+
                 });
 
                 updateRoomUI('kids-bedroom', {
@@ -563,7 +557,8 @@
                         available: data.kids_bedroom.relay_available,
                         state: data.kids_bedroom.relay_state ? 'On' : 'Off'
                     },
-                    temperature_history: data.kids_bedroom.temperature_history
+                    temperature_history: data.kids_bedroom.temperature_history,
+                    disabled_until: data.kids_bedroom.disabled_until
                 });
             } catch (error) {
                 console.error('Error fetching status:', error);
