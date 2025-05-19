@@ -40,6 +40,7 @@ pub struct TemperaturePoint {
     pub temperature: f64,
     pub target: f64,
     pub heater_on: bool,
+    pub is_disabled: bool,
 }
 
 #[derive(Deserialize)]

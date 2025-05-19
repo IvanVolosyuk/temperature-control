@@ -190,7 +190,7 @@ impl Server {
         status
     }
 
-    fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool) -> Result<()> {
+    fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool, is_disabled: bool) -> Result<()> {
         //Update temperature history in web state
         let mut web_state = self.web_state.write().unwrap();
         let room_state = if device_id == 0 {
@@ -207,6 +207,7 @@ impl Server {
             temperature: temp,
             target: target_temp,
             heater_on : header_on,
+            is_disabled,
         });
 
         // Keep only last 48 hours of data
@@ -275,6 +276,22 @@ impl Server {
         Ok(())
     }
 
+    fn is_heater_disabled(&self, device_id: u32, current_timestamp: i64) -> bool {
+        // Check if heater is disabled
+        let web_state = self.web_state.read().unwrap();
+        let room_state = if device_id == 0 {
+            &web_state.bedroom
+        } else if device_id == 2 {
+            &web_state.kids_bedroom
+        } else {
+            &web_state.bedroom // Default to bedroom, won't be used
+        };
+
+        return room_state.disabled_until
+            .map(|until| current_timestamp < until)
+            .unwrap_or(false);
+    }
+
     fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
 
@@ -327,92 +344,73 @@ impl Server {
             print!("{:.1} (target {:.1}) ", temp, target_temp);
             self.last_temp_deci.insert(device_id, temp);
 
-            // Check if heater is disabled
-            let web_state = self.web_state.read().unwrap();
-            let room_state = if device_id == 0 {
-                &web_state.bedroom
-            } else if device_id == 2 {
-                &web_state.kids_bedroom
-            } else {
-                &web_state.bedroom // Default to bedroom, won't be used
-            };
+            let is_disabled = self.is_heater_disabled(device_id, current_timestamp);
+            let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
 
-            let is_disabled = room_state.disabled_until
-                .map(|until| current_timestamp < until)
-                .unwrap_or(false);
+            if let Some(control_strategy) = self.controls.get_mut(device_id as usize) {
+                let (mode_on, delay_ms) = control_strategy.get_mode(
+                    temp,
+                    target_temp,
+                    future_target_temp,
+                    current_time
+                );
+                // Call set_output on the control strategy object itself (for its internal state)
+                control_strategy.set_output(mode_on, delay_ms, current_time);
 
-            if is_disabled {
-                print!("[DISABLED] ");
-                // Ensure heater is off
+                // If delay is not zero, than mode_on is still opposite for now
+                heater_on = mode_on ^ (delay_ms != 0);
+
+                // Now, command the actual relay and log according to C++ logic
                 let relay_hostname = RELAYS[device_id as usize];
-                if let Err(_e) = set_relay(relay_hostname, false, 0) {
-                    print!(" [NRELAY]");
+
+                // C++ Relay::set_relay logging part 1: Print ON/OFF if delay is 0
+                if delay_ms == 0 {
+                    print!("{}", if mode_on { "ON" } else { "OFF" });
+                }
+
+                if is_disabled {
+                    print!(" [DISABLED]");
+                }
+
+                // Send the command
+                match set_relay(relay_hostname, mode_on & !is_disabled, delay_ms) {
+                    Ok(_) => {
+                        let confirmation_state = self.relay_confirmations
+                            .entry(relay_hostname.to_string())
+                            .or_default();
+
+                        // C++ Relay::set_relay logging part 2: Print status based on confirmation
+                        if confirmation_state.unconfirmed {
+                            print!(" [UNCONFIRMED]");
+                        } else if delay_ms != 0 {
+                            // Print current *confirmed* state before new command with delay
+                            print!(" {}", if confirmation_state.confirmed_on_state { "*ON" } else { "*OFF" });
+                        }
+
+                        if delay_ms != 0 {
+                            print!(" ({:.1}m->{})",
+                                delay_ms as f64 / 60_000.0,
+                                if mode_on { "ON" } else { "OFF" });
+                        }
+
+                        // Mark as unconfirmed after sending command
+                        confirmation_state.unconfirmed = true;
+                    }
+                    Err(_e) => {
+                        print!(" [NRELAY]");
+                    }
                 }
             } else {
-                // FIXME: add 10 minutes to future time
-                let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
-
-                if let Some(control_strategy) = self.controls.get_mut(device_id as usize) {
-                    let (mode_on, delay_ms) = control_strategy.get_mode(
-                        temp,
-                        target_temp,
-                        future_target_temp,
-                        current_time
-                    );
-                    // Call set_output on the control strategy object itself (for its internal state)
-                    control_strategy.set_output(mode_on, delay_ms, current_time);
-
-                    // If delay is not zero, than mode_on is still opposite for now
-                    heater_on = mode_on ^ (delay_ms != 0);
-
-                    // Now, command the actual relay and log according to C++ logic
-                    let relay_hostname = RELAYS[device_id as usize];
-
-                    // C++ Relay::set_relay logging part 1: Print ON/OFF if delay is 0
-                    if delay_ms == 0 {
-                        print!("{}", if mode_on { "ON" } else { "OFF" });
-                    }
-
-                    // Send the command
-                    match set_relay(relay_hostname, mode_on, delay_ms) {
-                        Ok(_) => {
-                            let confirmation_state = self.relay_confirmations
-                                .entry(relay_hostname.to_string())
-                                .or_default();
-
-                            // C++ Relay::set_relay logging part 2: Print status based on confirmation
-                            if confirmation_state.unconfirmed {
-                                print!(" [UNCONFIRMED]");
-                            } else if delay_ms != 0 {
-                                // Print current *confirmed* state before new command with delay
-                                print!(" {}", if confirmation_state.confirmed_on_state { "*ON" } else { "*OFF" });
-                            }
-
-                            if delay_ms != 0 {
-                                print!(" ({:.1}m->{})",
-                                    delay_ms as f64 / 60_000.0,
-                                    if mode_on { "ON" } else { "OFF" });
-                            }
-
-                            // Mark as unconfirmed after sending command
-                            confirmation_state.unconfirmed = true;
-                        }
-                        Err(_e) => {
-                            print!(" [NRELAY]");
-                        }
-                    }
-                } else {
-                    print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
-                }
+                print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
             }
+            // Update web state after processing the report
+            self.update_history(device_id, current_timestamp, temp, target_temp, heater_on, is_disabled)?;
         } else {
             // Device ID out of range for configured controls/relays
             print!("{:.1} (unmanaged) ", temp);
             self.last_temp_deci.insert(device_id, temp); // Still store its temp if needed elsewhere
         }
 
-        // Update web state after processing the report
-        let _ = self.update_history(device_id, current_timestamp, temp, target_temp, heater_on);
 
         // Reporting for Netdata collector
         let tmp_file_path_str = format!("{}/new{}", NETDATA_PATH_PREFIX, device_id);

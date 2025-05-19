@@ -147,6 +147,7 @@
             const targetTempBgColor = isDarkMode ? 'rgba(100, 100, 100, 0.3)' : 'rgba(50, 50, 50, 0.3)';
             const pointHeaterOnColor = isDarkMode ? 'rgb(255, 99, 132)' : 'rgb(239, 68, 68)'; // Brighter Red
             const pointHeaterOffColor = isDarkMode ? 'rgba(59, 130, 246, 1)' : 'rgb(59, 130, 246)';
+            const disabledColor = isDarkMode ? 'rgb(180, 180, 180)' : 'rgb(100, 100, 100)'
 
             return {
                 type: 'line',
@@ -161,7 +162,8 @@
                             pointBackgroundColor: function(context) {
                                 const index = context.dataIndex;
                                 const dataset = context.dataset;
-                                return dataset.data[index]?.heater_on ? pointHeaterOnColor : pointHeaterOffColor;
+                                const color = dataset.data[index]?.heater_on ? pointHeaterOnColor : pointHeaterOffColor;
+                                return dataset.data[index]?.heater_disabled ? disabledColor : color;
                             }
                         },
                         {
@@ -275,7 +277,8 @@
                 history.map(point => ({
                     x: point.timestamp * 1000,
                     y: point.temperature,
-                    heater_on: point.heater_on
+                    heater_on: point.heater_on,
+                    heater_disabled: point.is_disabled
                 })));
             const targetData = merge(
                 chart.data.datasets[1].data,
