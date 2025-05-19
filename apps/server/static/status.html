@@ -8,21 +8,19 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="/static/favicon-512.png">
     <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#3b82f6">
-    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <meta name="theme-color" content="#111827"> <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Inter', sans-serif;
         }
-        .temperature-chart {
+        .temperature-chart { /* Kept for consistency if referenced, but height is now on .chart-container */
             width: 100%;
-            height: 300px;
+            height: 100%; /* Fill the container */
             max-height: 300px;
-            margin-top: 1rem;
         }
         .chart-container {
             position: relative;
@@ -30,82 +28,97 @@
             width: 100%;
             max-width: 1400px;
             margin: 0 auto;
+            margin-top: 1rem; /* Original margin-top for chart spacing */
+        }
+        /* Ensure icons in buttons don't shrink too much if you add them */
+        button img, button svg {
+            flex-shrink: 0;
+        }
+        /* Dark mode styles */
+        @media (prefers-color-scheme: dark) {
         }
     </style>
 </head>
-<body class="bg-gray-100 p-4">
+<body class="bg-gray-900 p-6 text-gray-100">
 
-    <h1 class="text-2xl font-bold mb-6 text-gray-800">Room Temperature Control</h1>
+    <h1 class="text-3xl font-bold mb-6 text-gray-200">Room Temperature Control</h1>
 
-    <!-- Bedroom -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 class="text-xl font-semibold mb-4 text-gray-700">Bedroom</h2>
+    <div class="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-semibold mb-4 text-gray-300">Bedroom</h2>
 
-        <!-- Temperature Sensor -->
-        <div class="mb-4 p-4 border border-gray-200 rounded-md">
-            <h3 class="text-lg font-medium text-gray-600 mb-2">Temperature Sensor</h3>
-            <div id="bedroom-sensor-status" class="flex items-center">
-                <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-gray-500">
-                <span id="bedroom-sensor-availability" class="text-gray-700">Available</span>
+        <div class="mb-4">
+            <h3 class="text-xl font-medium text-gray-400 mb-1">Temperature Sensor</h3>
+            <div id="bedroom-sensor-status-container" class="flex items-center">
+                <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-yellow-400">
+                <span id="bedroom-sensor-text" class="text-lg text-gray-500">Loading...</span>
             </div>
-            <div id="bedroom-sensor-data" class="mt-2">
-                <p class="text-gray-600">Current: <span id="bedroom-current-temp" class="font-medium text-lg">N/A</span></p>
-                <p class="text-gray-600">Target: <span id="bedroom-target-temp" class="font-medium text-lg">N/A</span></p>
+            <div id="bedroom-sensor-data" class="mt-2 text-gray-300 text-lg hidden">
+                <p>Current: <span id="bedroom-current-temp" class="font-medium">N/A</span>°C</p>
+                <p>Target: <span id="bedroom-target-temp" class="font-medium">N/A</span>°C</p>
             </div>
         </div>
 
-        <!-- Heater Relay -->
-        <div class="p-4 border border-gray-200 rounded-md">
-            <h3 class="text-lg font-medium text-gray-600 mb-2">Heater Relay</h3>
-            <div id="bedroom-relay-status" class="flex items-center mb-2">
-                <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-gray-500">
-                <span id="bedroom-relay-availability" class="text-gray-700">Available</span>
+        <div class="mb-4">
+            <h3 class="text-xl font-medium text-gray-400 mb-1">Heater Relay</h3>
+            <div id="bedroom-relay-status-container" class="flex items-center mb-2">
+                <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-yellow-400">
+                <span id="bedroom-relay-text" class="text-lg text-gray-500">Loading...</span>
             </div>
-            <div class="flex items-center justify-between">
-                <p class="text-gray-600">State: <span id="bedroom-relay-state" class="font-medium text-lg">Off</span></p>
-                <button id="bedroom-relay-toggle" class="px-5 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 text-lg">
-                    Toggle On
+            <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
+                <button id="bedroom-relay-toggle" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+                    Loading...
+                </button>
+                <button id="bedroom-control-btn" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+                    Loading...
                 </button>
             </div>
+             <div id="bedroom-timer-status" class="text-lg text-yellow-400 mt-2 hidden"></div>
         </div>
+        <div class="mt-6 border-t border-gray-700 pt-4">
+            <h3 class="text-xl font-medium text-gray-400 mb-2">Temperature History</h3>
             <div class="chart-container">
                 <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
             </div>
+        </div>
     </div>
 
-    <!-- Kids Bedroom -->
-    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-        <h2 class="text-xl font-semibold mb-4 text-gray-700">Kids Bedroom</h2>
+    <div class="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+        <h2 class="text-2xl font-semibold mb-4 text-gray-300">Kids Bedroom</h2>
 
-        <!-- Temperature Sensor -->
-        <div class="mb-4 p-4 border border-gray-200 rounded-md">
-            <h3 class="text-lg font-medium text-gray-600 mb-2">Temperature Sensor</h3>
-            <div id="kids-bedroom-sensor-status" class="flex items-center">
-                <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-gray-500">
-                <span id="kids-bedroom-sensor-availability" class="text-red-600">Unavailable</span>
+        <div class="mb-4">
+            <h3 class="text-xl font-medium text-gray-400 mb-1">Temperature Sensor</h3>
+            <div id="kids-bedroom-sensor-status-container" class="flex items-center">
+                <img src="https://unpkg.com/lucide-static@latest/icons/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-yellow-400">
+                <span id="kids-bedroom-sensor-text" class="text-lg text-gray-500">Loading...</span>
             </div>
-                <div id="kids-bedroom-sensor-data" class="mt-2">
-                <p class="text-gray-600">Current: <span id="kids-bedroom-current-temp" class="font-medium text-lg">N/A</span></p>
-                <p class="text-gray-600">Target: <span id="kids-bedroom-target-temp" class="font-medium text-lg">N/A</span></p>
+            <div id="kids-bedroom-sensor-data" class="mt-2 text-gray-300 text-lg hidden">
+                <p>Current: <span id="kids-bedroom-current-temp" class="font-medium">N/A</span>°C</p>
+                <p>Target: <span id="kids-bedroom-target-temp" class="font-medium">N/A</span>°C</p>
             </div>
         </div>
 
-        <!-- Heater Relay -->
-        <div class="p-4 border border-gray-200 rounded-md">
-            <h3 class="text-lg font-medium text-gray-600 mb-2">Heater Relay</h3>
-            <div id="kids-bedroom-relay-status" class="flex items-center mb-2">
-                <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-gray-500">
-                <span id="kids-bedroom-relay-availability" class="text-red-600">Unavailable</span>
+        <div class="mb-4">
+            <h3 class="text-xl font-medium text-gray-400 mb-1">Heater Relay</h3>
+            <div id="kids-bedroom-relay-status-container" class="flex items-center mb-2">
+                <img src="https://unpkg.com/lucide-static@latest/icons/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-yellow-400">
+                <span id="kids-bedroom-relay-text" class="text-lg text-gray-500">Loading...</span>
             </div>
-            <div class="flex items-center justify-between">
-                <p class="text-gray-600">State: <span id="kids-bedroom-relay-state" class="font-medium text-lg">Off</span></p>
-                <button id="kids-bedroom-relay-toggle" class="px-5 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1 text-lg">
-                    Toggle On (Unavailable)
+             <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
+                <button id="kids-bedroom-relay-toggle" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+                    Loading...
+                </button>
+                <button id="kids-bedroom-control-btn" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+                    Loading...
                 </button>
             </div>
+            <div id="kids-bedroom-timer-status" class="text-lg text-yellow-400 mt-2 hidden"></div>
         </div>
-        <div class="chart-container">
-            <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
+
+        <div class="mt-6 border-t border-gray-700 pt-4">
+            <h3 class="text-xl font-medium text-gray-400 mb-2">Temperature History</h3>
+            <div class="chart-container">
+                <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
+            </div>
         </div>
     </div>
 
@@ -123,27 +136,44 @@
             });
         }
 
+        // Client-side state for heater disable timers
+        let bedroomHeaterDisabledUntil = null;
+        let kidsBedroomHeaterDisabledUntil = null;
+        let bedroomDisableTimeoutId = null;
+        let kidsBedroomDisableTimeoutId = null;
+
         var makeSettings = function() {
+            const isDarkMode = true;
+            // window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+            const textColor = isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
+            const currentTempColor = isDarkMode ? 'rgba(100, 180, 225, 0.25)' : 'rgb(59, 130, 146, 0.25)';
+            const currentTempBgColor = isDarkMode ? 'rgba(100, 180, 243, 0.4)' : 'rgba(59, 130, 246, 0.4)';
+            const targetTempColor = isDarkMode ? 'rgba(200, 200, 150, 0.7)' : 'rgb(150, 150, 100, 0.4)';
+            const targetTempBgColor = isDarkMode ? 'rgba(100, 100, 100, 0.3)' : 'rgba(50, 50, 50, 0.3)';
+            const pointHeaterOnColor = isDarkMode ? 'rgb(255, 99, 132)' : 'rgb(239, 68, 68)'; // Brighter Red
+            const pointHeaterOffColor = isDarkMode ? 'rgba(59, 130, 246, 1)' : 'rgb(59, 130, 246)';
+
             return {
                 type: 'line',
                 data: {
                     datasets: [
                         {
                             label: 'Current Temperature',
-                            borderColor: 'rgb(59, 130, 146, 0.25)',
-                            backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                            borderColor: currentTempColor,
+                            backgroundColor: currentTempBgColor,
                             data: [],
                             pointRadius: 4,
                             pointBackgroundColor: function(context) {
                                 const index = context.dataIndex;
                                 const dataset = context.dataset;
-                                return dataset.data[index]?.heater_on ? 'rgb(239, 68, 68)' : 'rgb(59, 130, 246)';
+                                return dataset.data[index]?.heater_on ? pointHeaterOnColor : pointHeaterOffColor;
                             }
                         },
                         {
                             label: 'Target Temperature',
-                            borderColor: 'rgb(150, 150, 150, 0.4)',
-                            backgroundColor: 'rgba(50, 50, 50, 0.3)',
+                            borderColor: targetTempColor,
+                            backgroundColor: targetTempBgColor,
                             data: [],
                             pointRadius: 1
                         }
@@ -152,12 +182,6 @@
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    legend: {
-                        labels: {
-                            fontColor: "blue",
-                            fontSize: 18
-                        }
-                    },
                     scales: {
                         x: {
                             type: 'linear',
@@ -165,55 +189,55 @@
                                 callback: function(value) {
                                     const date = new Date(value);
                                     return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-                                }
+                                },
+                                color: textColor,
+                                maxTicksLimit: 8,
+                                autoSkip: true
                             },
                             title: {
                                 display: true,
-                                text: 'Time'
+                                text: 'Time',
+                                color: textColor,
+                                font: { size: 14 }
                             },
-                            min: Date.now() - 3600 * 1000,  // Show last 1 hour
-                            max: Date.now()
+                            min: Date.now() - 3600 * 1000, // Show last 1 hour
+                            max: Date.now(),
+                            grid: { color: gridColor }
                         },
                         y: {
                             title: {
                                 display: true,
-                                text: 'Temperature (°C)'
+                                text: 'Temperature (°C)',
+                                color: textColor,
+                                font: { size: 14 }
                             },
                             ticks: {
                                 callback: function(value) {
                                     return value.toFixed(1) + '°C';
                                 },
                                 stepSize: 0.1,
-                                maxTicksLimit: 6
-                            }
+                                maxTicksLimit: 6,
+                                color: textColor
+                            },
+                            grid: { color: gridColor }
                         }
                     },
                     plugins: {
                         zoom: {
-                            pan: {
-                                enabled: true,
-                                mode: 'x'
-                            },
-                            zoom: {
-                                mode: 'x',
-                                pinch: {
-                                    enabled: true
-                                },
-                                wheel: {
-                                    enabled: true
-                                }
-                            }
+                            pan: { enabled: true, mode: 'x' },
+                            zoom: { mode: 'x', pinch: { enabled: true }, wheel: { enabled: true }}
                         },
                         legend: {
                             display: true,
-                            position: 'top'
+                            position: 'top',
+                            labels: { color: textColor, font: {size: 14} }
                         },
                         tooltip: {
                             callbacks: {
                                 title: function(context) {
                                     const timestamp = context[0].parsed.x;
                                     const date = new Date(timestamp);
-                                    return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+                                    return date.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                                 },
                                 label: function(context) {
                                     return `${context.dataset.label}: ${context.parsed.y.toFixed(1)}°C`;
@@ -225,114 +249,271 @@
             };
         }
 
-        // Initialize charts
-        const bedroomChart = new Chart(document.getElementById('bedroom-temperature-chart'), makeSettings());
-        const kidsBedroomChart = new Chart(document.getElementById('kids-bedroom-temperature-chart'), makeSettings());
+        const bedroomChart = new Chart(document.getElementById('bedroom-temperature-chart').getContext('2d'), makeSettings());
+        const kidsBedroomChart = new Chart(document.getElementById('kids-bedroom-temperature-chart').getContext('2d'), makeSettings());
 
-        // Function to update chart data
+        function merge(orig, newArray) {
+            var originalArray = [...orig];
+            if (originalArray.length === 0) {
+                return originalArray.concat(newArray);
+            }
+
+            if (newArray.length === 0) {
+                return originalArray;
+            }
+
+            const lastElementOfOriginal = originalArray[originalArray.length - 1];
+            let startIndex = 0;
+            while (startIndex < newArray.length && newArray[startIndex].x <= lastElementOfOriginal.x) {
+                startIndex++;
+            }
+
+            // Extract the subarray from newArray starting from startIndex
+            const subArrayToAppend = newArray.slice(startIndex);
+
+            // Append the subarray to the originalArray
+            return originalArray.concat(subArrayToAppend);
+        };
+
         function updateChart(chart, history) {
+            const currentData = merge(
+                chart.data.datasets[0].data,
+                history.map(point => ({
+                    x: point.timestamp * 1000,
+                    y: point.temperature,
+                    heater_on: point.heater_on
+                })));
+            const targetData = merge(
+                chart.data.datasets[1].data,
+                history.map(point => ({
+                    x: point.timestamp * 1000,
+                    y: point.target
+                })));
 
-            const currentData = history.map(point => ({
-                x: point.timestamp * 1000,
-                y: point.temperature,
-                heater_on: point.heater_on
-            }));
 
-            const targetData = history.map(point => ({
-                x: point.timestamp * 1000,
-                y: point.target
-            }));
+            var prevLen = chart.data.datasets[0].data.length;
+            var isUpdated = false;
 
-            // Update the datasets
+            if (currentData.length > 0) {
+                var firstTimestamp = currentData[0].x;
+                var lastTimestamp = currentData[currentData.length - 1].x;
+                var dataRange = lastTimestamp - firstTimestamp;
+
+                if (prevLen != 0) {
+                    var prevLastTimestamp = chart.data.datasets[0].data[prevLen - 1].x;
+                    isUpdated = lastTimestamp != prevLastTimestamp;
+                } else {
+                    isUpdated = true;
+                }
+            }
+
+            var keepScrolling = false;
+            if (isUpdated)  {
+                keepScrolling = prevLastTimestamp != lastTimestamp && prevLastTimestamp <= chart.options.scales.x.max;
+            }
+            if (isUpdated) {
+                console.log('isUpdated: ' + isUpdated + " keepScrolling " + keepScrolling);
+            }
+
             chart.data.datasets[0].data = currentData;
             chart.data.datasets[1].data = targetData;
+
             const now = Date.now();
-            var dt = now - currentData[0].x + 20000;
-            var last = now;
+
             if (currentData.length > 0) {
-              last = currentData[currentData.length - 1].x;
-            }
-            if (chart.options.scales.x.max - chart.options.scales.x.min > dt) {
-               chart.options.scales.x.min = chart.options.scales.x.max - dt;
-            }
-            var offset = (chart.options.scales.x.max - chart.options.scales.x.min) * 0.05;
-            if (last - chart.options.scales.x.max < offset * 4) {
-              chart.options.scales.x.max = last + offset;
-            }
+                const firstTimestamp = currentData[0].x;
+                const lastTimestamp = currentData[currentData.length - 1].x;
+                const dataRange = lastTimestamp - firstTimestamp;
 
-            // Update the chart
-            chart.update(); // Use 'none' mode to prevent animation and reduce CPU usage
-        }
-
-        // Function to update UI for a specific room
-        function updateRoomUI(roomPrefix, data) {
-            // Update sensor availability
-            const sensorAvailability = document.getElementById(`${roomPrefix}-sensor-availability`);
-            sensorAvailability.textContent = data.sensor.available ? 'Available' : 'Unavailable';
-            sensorAvailability.className = `text-${data.sensor.available ? 'green' : 'red'}-600`;
-
-            // Update temperature data
-            document.getElementById(`${roomPrefix}-current-temp`).textContent = `${data.sensor.currentTemp.toFixed(1)}°C`;
-            document.getElementById(`${roomPrefix}-target-temp`).textContent = `${data.sensor.targetTemp.toFixed(1)}°C`;
-
-            // Update relay availability
-            const relayAvailability = document.getElementById(`${roomPrefix}-relay-availability`);
-            relayAvailability.textContent = data.relay.available ? 'Available' : 'Unavailable';
-            relayAvailability.className = `text-${data.relay.available ? 'green' : 'red'}-600`;
-
-            // Update relay state
-            document.getElementById(`${roomPrefix}-relay-state`).textContent = data.relay.state;
-
-            // Update toggle button
-            const toggleButton = document.getElementById(`${roomPrefix}-relay-toggle`);
-            if (data.relay.available) {
-                toggleButton.className = 'px-5 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1 text-lg';
-                toggleButton.textContent = `Toggle ${data.relay.state === 'On' ? 'Off' : 'On'}`;
-                toggleButton.disabled = false;
+                // Keep one point on screen
+                if (lastTimestamp < chart.options.scales.x.min) {
+                    var move = lastTimestamp - chart.options.scales.x.min;
+                    chart.options.scales.x.min += move;
+                    chart.options.scales.x.max += move;
+                }
+                if (firstTimestamp > chart.options.scales.x.max) {
+                    var move = firstTimestamp - chart.options.scales.x.max;
+                    chart.options.scales.x.min += move;
+                    chart.options.scales.x.max += move;
+                }
+                var offset = (chart.options.scales.x.max - chart.options.scales.x.min) * 0.05;
+                if (lastTimestamp + offset > chart.options.scales.x.max && keepScrolling) {
+                    console.log('move: ' + chart.options.scales.x.max + " lastTimestamp " + lastTimestamp + " offset" + offset);
+                    chart.options.scales.x.max = lastTimestamp + offset;
+                }
             } else {
-                toggleButton.className = 'px-5 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:ring-offset-1 text-lg';
-                toggleButton.textContent = 'Toggle (Unavailable)';
-                toggleButton.disabled = true;
+                chart.options.scales.x.min = Math.max(now - 3600 * 1000, firstTimestamp - 60000);
+                chart.options.scales.x.max = now + 60000;
             }
-
-            // Update chart
-            const chart = roomPrefix === 'bedroom' ? bedroomChart : kidsBedroomChart;
-            updateChart(chart, data.temperature_history);
+            chart.update();
         }
 
-        // Function to control relay
-        async function controlRelay(room, newState) {
+        // Track if user has manually zoomed/panned
+        [bedroomChart, kidsBedroomChart].forEach(chart => {
+            chart.isZoomedOrPanned = false;
+            const chartElement = chart.canvas;
+            chartElement.addEventListener('mousedown', () => chart.isZoomedOrPanned = true); // Simple flag, might need more robust logic with chartjs-plugin-zoom events
+            chartElement.addEventListener('touchstart', () => chart.isZoomedOrPanned = true);
+            chartElement.addEventListener('wheel', () => chart.isZoomedOrPanned = true);
+        });
+
+
+        function updateRoomUI(roomPrefix, data) {
+            const isBedroom = roomPrefix === 'bedroom';
+            let heaterDisabledUntil = isBedroom ? bedroomHeaterDisabledUntil : kidsBedroomHeaterDisabledUntil;
+
+            // Sensor Elements
+            const sensorTextEl = document.getElementById(`${roomPrefix}-sensor-text`);
+            const sensorDataEl = document.getElementById(`${roomPrefix}-sensor-data`);
+            const currentTempEl = document.getElementById(`${roomPrefix}-current-temp`);
+            const targetTempEl = document.getElementById(`${roomPrefix}-target-temp`);
+
+            // Relay Elements
+            const relayTextEl = document.getElementById(`${roomPrefix}-relay-text`);
+            const relayToggleBtn = document.getElementById(`${roomPrefix}-relay-toggle`);
+            const controlBtn = document.getElementById(`${roomPrefix}-control-btn`);
+            const timerStatusEl = document.getElementById(`${roomPrefix}-timer-status`);
+
+            // Update Sensor UI
+            if (data.sensor.available) {
+                sensorTextEl.textContent = 'Available';
+                sensorTextEl.className = 'text-lg text-green-400';
+                sensorDataEl.classList.remove('hidden');
+                currentTempEl.textContent = data.sensor.currentTemp !== null ? data.sensor.currentTemp.toFixed(1) : 'N/A';
+                targetTempEl.textContent = data.sensor.targetTemp !== null ? data.sensor.targetTemp.toFixed(1) : 'N/A';
+            } else {
+                sensorTextEl.textContent = 'Unavailable';
+                sensorTextEl.className = 'text-lg text-red-500';
+                sensorDataEl.classList.add('hidden');
+                currentTempEl.textContent = 'N/A';
+                targetTempEl.textContent = 'N/A';
+            }
+
+            // Update Relay UI
+            relayToggleBtn.classList.remove('hidden');
+            controlBtn.classList.remove('hidden');
+
+            if (data.relay.available) {
+                const isHeaterDisabled = heaterDisabledUntil && Date.now() < heaterDisabledUntil;
+
+                if (isHeaterDisabled) {
+                    relayTextEl.textContent = 'Current: DISABLED';
+                    relayTextEl.className = 'text-lg text-yellow-400';
+
+                    relayToggleBtn.textContent = 'Heater Disabled';
+                    relayToggleBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-gray-600 text-gray-400 cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 text-lg';
+                    relayToggleBtn.disabled = true;
+
+                    controlBtn.textContent = 'Restore Heating';
+                    controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-green-600 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75 text-lg';
+                    controlBtn.disabled = false;
+
+                    const timeLeft = Math.max(0, Math.round((heaterDisabledUntil - Date.now()) / 1000));
+                    const minutes = Math.floor(timeLeft / 60);
+                    const seconds = timeLeft % 60;
+                    timerStatusEl.textContent = `Automatic restore in: ${minutes}m ${seconds}s`;
+                    timerStatusEl.classList.remove('hidden');
+
+                } else { // Not disabled, or timer expired
+                    if (heaterDisabledUntil && Date.now() >= heaterDisabledUntil) { // Timer just expired
+                        if (isBedroom) bedroomHeaterDisabledUntil = null; else kidsBedroomHeaterDisabledUntil = null;
+                        if (isBedroom && bedroomDisableTimeoutId) clearTimeout(bedroomDisableTimeoutId);
+                        if (!isBedroom && kidsBedroomDisableTimeoutId) clearTimeout(kidsBedroomDisableTimeoutId);
+                    }
+
+                    relayTextEl.textContent = `Current: ${data.relay.state.toUpperCase()}`;
+                    relayTextEl.className = 'text-lg text-green-400';
+
+                    relayToggleBtn.textContent = data.relay.state === 'On' ? 'Turn Off' : 'Turn On';
+                    relayToggleBtn.className = `w-full sm:w-auto px-6 py-3 rounded text-white focus:outline-none focus:ring-2 focus:ring-opacity-75 text-lg ${data.relay.state === 'On' ? 'bg-red-600 hover:bg-red-700 focus:ring-red-400' : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-400'}`;
+                    relayToggleBtn.disabled = false;
+
+                    controlBtn.textContent = 'Disable Heater for 2 Hours';
+                    controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-yellow-600 text-gray-900 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-75 text-lg';
+                    controlBtn.disabled = false;
+                    timerStatusEl.classList.add('hidden');
+                }
+            } else { // Relay unavailable
+                relayTextEl.textContent = 'Unavailable';
+                relayTextEl.className = 'text-lg text-red-500';
+
+                relayToggleBtn.textContent = 'Toggle (Unavailable)';
+                relayToggleBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-gray-600 text-gray-400 cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 text-lg';
+                relayToggleBtn.disabled = true;
+
+                controlBtn.textContent = 'Disable (Unavailable)';
+                controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-gray-600 text-gray-400 cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 text-lg';
+                controlBtn.disabled = true;
+                timerStatusEl.classList.add('hidden');
+            }
+
+            const chart = roomPrefix === 'bedroom' ? bedroomChart : kidsBedroomChart;
+            if (data.temperature_history) {
+               updateChart(chart, data.temperature_history);
+            }
+        }
+
+        async function controlRelay(room, newState) { // newState is boolean: true for On, false for Off
+            const apiRoomName = room === 'kids-bedroom' ? 'kids_bedroom' : room;
             try {
                 const response = await fetch('/api/relay', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        room: room,
-                        state: newState
-                    })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ room: apiRoomName, state: newState })
                 });
-
                 const result = await response.json();
                 if (!result.success) {
                     console.error('Failed to control relay:', result.error);
-                    // Refresh UI to show actual state
-                    updateUI();
                 }
             } catch (error) {
                 console.error('Error controlling relay:', error);
-                // Refresh UI to show actual state
-                updateUI();
+            }
+            updateUI(); // Fetch latest state after trying to control
+        }
+
+        function handleDisableHeater(roomPrefix) {
+            const duration = 2 * 60 * 60 * 1000; // 2 hours
+            const now = Date.now();
+            if (roomPrefix === 'bedroom') {
+                bedroomHeaterDisabledUntil = now + duration;
+                if (bedroomDisableTimeoutId) clearTimeout(bedroomDisableTimeoutId);
+                bedroomDisableTimeoutId = setTimeout(() => {
+                    bedroomHeaterDisabledUntil = null;
+                    updateUI();
+                }, duration);
+                // Turn off heater if it's on
+                const currentState = document.getElementById('bedroom-relay-text').textContent.includes('ON');
+                if (currentState) controlRelay('bedroom', false); else updateUI();
+
+            } else if (roomPrefix === 'kids-bedroom') {
+                kidsBedroomHeaterDisabledUntil = now + duration;
+                 if (kidsBedroomDisableTimeoutId) clearTimeout(kidsBedroomDisableTimeoutId);
+                kidsBedroomDisableTimeoutId = setTimeout(() => {
+                    kidsBedroomHeaterDisabledUntil = null;
+                    updateUI();
+                }, duration);
+                const currentState = document.getElementById('kids-bedroom-relay-text').textContent.includes('ON');
+                 if (currentState) controlRelay('kids-bedroom', false); else updateUI();
             }
         }
 
-        // Function to update UI with real data
+        function handleRestoreHeater(roomPrefix) {
+            if (roomPrefix === 'bedroom') {
+                bedroomHeaterDisabledUntil = null;
+                if (bedroomDisableTimeoutId) clearTimeout(bedroomDisableTimeoutId);
+            } else if (roomPrefix === 'kids-bedroom') {
+                kidsBedroomHeaterDisabledUntil = null;
+                 if (kidsBedroomDisableTimeoutId) clearTimeout(kidsBedroomDisableTimeoutId);
+            }
+            updateUI();
+        }
+
+
         async function updateUI() {
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
-                // Update bedroom
+
                 updateRoomUI('bedroom', {
                     sensor: {
                         available: data.bedroom.sensor_available,
@@ -346,7 +527,6 @@
                     temperature_history: data.bedroom.temperature_history
                 });
 
-                // Update kids bedroom
                 updateRoomUI('kids-bedroom', {
                     sensor: {
                         available: data.kids_bedroom.sensor_available,
@@ -361,23 +541,47 @@
                 });
             } catch (error) {
                 console.error('Error fetching status:', error);
+                // Optionally show a global error message on the UI
             }
         }
 
         // Add click handlers for toggle buttons
         document.getElementById('bedroom-relay-toggle').addEventListener('click', function() {
-            const currentState = document.getElementById('bedroom-relay-state').textContent === 'On';
-            controlRelay('bedroom', !currentState);
+            if (this.disabled) return;
+            const currentRelayStateText = document.getElementById('bedroom-relay-text').textContent;
+            const isCurrentlyOn = currentRelayStateText.includes('ON');
+            controlRelay('bedroom', !isCurrentlyOn);
         });
 
         document.getElementById('kids-bedroom-relay-toggle').addEventListener('click', function() {
-            const currentState = document.getElementById('kids-bedroom-relay-state').textContent === 'On';
-            controlRelay('kids_bedroom', !currentState);
+             if (this.disabled) return;
+            const currentRelayStateText = document.getElementById('kids-bedroom-relay-text').textContent;
+            const isCurrentlyOn = currentRelayStateText.includes('ON');
+            controlRelay('kids-bedroom', !isCurrentlyOn);
         });
 
-        // Update UI every second
+        // Add click handlers for control buttons (Disable/Restore)
+        document.getElementById('bedroom-control-btn').addEventListener('click', function() {
+            if (this.disabled) return;
+            const isHeaterDisabled = bedroomHeaterDisabledUntil && Date.now() < bedroomHeaterDisabledUntil;
+            if (isHeaterDisabled) {
+                handleRestoreHeater('bedroom');
+            } else {
+                handleDisableHeater('bedroom');
+            }
+        });
+
+        document.getElementById('kids-bedroom-control-btn').addEventListener('click', function() {
+            if (this.disabled) return;
+            const isHeaterDisabled = kidsBedroomHeaterDisabledUntil && Date.now() < kidsBedroomHeaterDisabledUntil;
+            if (isHeaterDisabled) {
+                handleRestoreHeater('kids-bedroom');
+            } else {
+                handleDisableHeater('kids-bedroom');
+            }
+        });
+
         setInterval(updateUI, 1000);
-        // Initial update
         updateUI();
     </script>
 
