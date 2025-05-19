@@ -151,7 +151,7 @@
             const currentTempColor = isDarkMode ? 'rgba(100, 180, 225, 0.25)' : 'rgb(59, 130, 146, 0.25)';
             const currentTempBgColor = isDarkMode ? 'rgba(100, 180, 243, 0.4)' : 'rgba(59, 130, 246, 0.4)';
             const targetTempColor = isDarkMode ? 'rgba(200, 200, 150, 0.7)' : 'rgb(150, 150, 100, 0.4)';
-            const targetTempBgColor = isDarkMode ? 'rgba(100, 100, 100, 0.3)' : 'rgba(50, 50, 50, 0.3)';
+            const targetTempBgColor = isDarkMode ? 'rgba(90, 100, 90, 1)' : 'rgba(50, 50, 50, 1)';
             const pointHeaterOnColor = isDarkMode ? 'rgba(255, 80, 80, 1)' : 'rgb(239, 68, 68)'; // Brighter Red
             const pointHeaterOffColor = isDarkMode ? 'rgba(80, 80, 255, 1)' : 'rgb(59, 130, 246)';
             const disabledOnColor = isDarkMode ? 'rgba(180, 140, 140, 0.6)' : 'rgba(130, 100, 100, 0.6)'
@@ -177,10 +177,10 @@
                         },
                         {
                             label: 'Target Temperature',
-                            borderColor: targetTempColor,
+                            borderColor: targetTempBgColor,
                             backgroundColor: targetTempBgColor,
                             data: [],
-                            pointRadius: 1
+                            pointRadius: 0
                         }
                     ]
                 },
@@ -315,7 +315,7 @@
 
             var keepScrolling = false;
             if (isUpdated)  {
-                keepScrolling = prevLastTimestamp != lastTimestamp && prevLastTimestamp <= chart.options.scales.x.max;
+                keepScrolling = prevLastTimestamp <= chart.options.scales.x.max;
             }
             if (isUpdated) {
                 console.log('isUpdated: ' + isUpdated + " keepScrolling " + keepScrolling);
@@ -345,7 +345,9 @@
                 var offset = (chart.options.scales.x.max - chart.options.scales.x.min) * 0.05;
                 if (lastTimestamp + offset > chart.options.scales.x.max && keepScrolling) {
                     console.log('move: ' + chart.options.scales.x.max + " lastTimestamp " + lastTimestamp + " offset" + offset);
-                    chart.options.scales.x.max = lastTimestamp + offset;
+                    var move = lastTimestamp + offset - chart.options.scales.x.max;
+                    chart.options.scales.x.min += move;
+                    chart.options.scales.x.max += move;
                 }
             } else {
                 chart.options.scales.x.min = Math.max(now - 3600 * 1000, firstTimestamp - 60000);
