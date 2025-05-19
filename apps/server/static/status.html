@@ -404,6 +404,7 @@
                     relayToggleBtn.disabled = true;
 
                     controlBtn.textContent = 'Restore Heating';
+                    controlBtn.requestDisable = false;
                     controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-green-600 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75 text-lg';
                     controlBtn.disabled = false;
 
@@ -422,6 +423,7 @@
                     relayToggleBtn.disabled = false;
 
                     controlBtn.textContent = 'Disable Heater for 2 Hours';
+                    controlBtn.requestDisable = true;
                     controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-yellow-600 text-gray-900 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-75 text-lg';
                     controlBtn.disabled = false;
                     timerStatusEl.classList.add('hidden');
@@ -584,7 +586,7 @@
         // Add click handlers for control buttons (Disable/Restore)
         document.getElementById('bedroom-control-btn').addEventListener('click', function() {
             if (this.disabled) return;
-            const isHeaterDisabled = bedroomHeaterDisabledUntil && Date.now() < bedroomHeaterDisabledUntil;
+            const isHeaterDisabled = !this.requestDisable;
             if (isHeaterDisabled) {
                 handleRestoreHeater('bedroom');
             } else {
@@ -594,7 +596,8 @@
 
         document.getElementById('kids-bedroom-control-btn').addEventListener('click', function() {
             if (this.disabled) return;
-            const isHeaterDisabled = kidsBedroomHeaterDisabledUntil && Date.now() < kidsBedroomHeaterDisabledUntil;
+            const isHeaterDisabled = !this.requestDisable;
+
             if (isHeaterDisabled) {
                 handleRestoreHeater('kids-bedroom');
             } else {
