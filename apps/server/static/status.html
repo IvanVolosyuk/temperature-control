@@ -152,9 +152,10 @@
             const currentTempBgColor = isDarkMode ? 'rgba(100, 180, 243, 0.4)' : 'rgba(59, 130, 246, 0.4)';
             const targetTempColor = isDarkMode ? 'rgba(200, 200, 150, 0.7)' : 'rgb(150, 150, 100, 0.4)';
             const targetTempBgColor = isDarkMode ? 'rgba(100, 100, 100, 0.3)' : 'rgba(50, 50, 50, 0.3)';
-            const pointHeaterOnColor = isDarkMode ? 'rgb(255, 99, 132)' : 'rgb(239, 68, 68)'; // Brighter Red
-            const pointHeaterOffColor = isDarkMode ? 'rgba(59, 130, 246, 1)' : 'rgb(59, 130, 246)';
-            const disabledColor = isDarkMode ? 'rgb(180, 180, 180)' : 'rgb(100, 100, 100)'
+            const pointHeaterOnColor = isDarkMode ? 'rgba(255, 80, 80, 1)' : 'rgb(239, 68, 68)'; // Brighter Red
+            const pointHeaterOffColor = isDarkMode ? 'rgba(80, 80, 255, 1)' : 'rgb(59, 130, 246)';
+            const disabledOnColor = isDarkMode ? 'rgba(180, 140, 140, 0.6)' : 'rgba(130, 100, 100, 0.6)'
+            const disabledOffColor = isDarkMode ? 'rgba(140, 140, 180, 0.6)' : 'rgba(100, 100, 130, 0.6)'
 
             return {
                 type: 'line',
@@ -170,6 +171,7 @@
                                 const index = context.dataIndex;
                                 const dataset = context.dataset;
                                 const color = dataset.data[index]?.heater_on ? pointHeaterOnColor : pointHeaterOffColor;
+                                const disabledColor = dataset.data[index]?.heater_on ? disabledOnColor : disabledOffColor;
                                 return dataset.data[index]?.heater_disabled ? disabledColor : color;
                             }
                         },
