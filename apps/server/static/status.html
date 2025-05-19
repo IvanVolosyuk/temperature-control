@@ -357,6 +357,11 @@
             chartElement.addEventListener('wheel', () => chart.isZoomedOrPanned = true);
         });
 
+        // Track last update timestamp for both rooms
+        let lastUpdateTimestamp = {
+            bedroom: null,
+            kids_bedroom: null
+        };
 
         function updateRoomUI(roomPrefix, data) {
             const isBedroom = roomPrefix === 'bedroom';
@@ -508,11 +513,32 @@
             updateUI();
         }
 
-
         async function updateUI() {
             try {
-                const response = await fetch('/api/status');
+                // Build URL with last_update parameter if we have timestamps
+                let url = '/api/status';
+                const params = new URLSearchParams();
+
+                // Only add last_update if we have timestamps for both rooms
+                if (lastUpdateTimestamp.bedroom && lastUpdateTimestamp.kids_bedroom) {
+                    // Use the most recent timestamp to ensure we don't miss any data
+                    const latestTimestamp = Math.max(lastUpdateTimestamp.bedroom, lastUpdateTimestamp.kids_bedroom);
+                    params.append('last_update', latestTimestamp.toString());
+                    url += '?' + params.toString();
+                }
+
+                const response = await fetch(url);
                 const data = await response.json();
+
+                // Update last update timestamps if we got new data
+                if (data.bedroom.temperature_history.length > 0) {
+                    const lastPoint = data.bedroom.temperature_history[data.bedroom.temperature_history.length - 1];
+                    lastUpdateTimestamp.bedroom = lastPoint.timestamp;
+                }
+                if (data.kids_bedroom.temperature_history.length > 0) {
+                    const lastPoint = data.kids_bedroom.temperature_history[data.kids_bedroom.temperature_history.length - 1];
+                    lastUpdateTimestamp.kids_bedroom = lastPoint.timestamp;
+                }
 
                 updateRoomUI('bedroom', {
                     sensor: {
