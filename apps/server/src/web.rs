@@ -2,7 +2,7 @@ use axum::{
     routing::{get, post},
     Router,
     response::Html,
-    extract::{State, Json},
+    extract::{State, Json, Query},
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,6 +46,11 @@ pub struct RelayControlRequest {
     state: bool,
 }
 
+#[derive(Deserialize)]
+pub struct StatusQuery {
+    last_update: Option<i64>,
+}
+
 pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
     let app_state = WebState { server_state };
 
@@ -74,9 +79,29 @@ async fn serve_status_page() -> Html<String> {
 
 async fn get_status(
     State(state): State<WebState>,
+    Query(query): Query<StatusQuery>,
 ) -> axum::Json<ServerState> {
-    let server_state = state.server_state.read().await;
-    axum::Json((*server_state).clone())
+    let mut server_state = state.server_state.read().await;
+    let mut response_state = (*server_state).clone();
+
+    // If last_update timestamp is provided, filter temperature history
+    if let Some(last_update) = query.last_update {
+        // Filter bedroom temperature history
+        response_state.bedroom.temperature_history = server_state.bedroom.temperature_history
+            .iter()
+            .filter(|point| point.timestamp > last_update)
+            .cloned()
+            .collect();
+
+        // Filter kids bedroom temperature history
+        response_state.kids_bedroom.temperature_history = server_state.kids_bedroom.temperature_history
+            .iter()
+            .filter(|point| point.timestamp > last_update)
+            .cloned()
+            .collect();
+    }
+
+    axum::Json(response_state)
 }
 
 async fn control_relay(
