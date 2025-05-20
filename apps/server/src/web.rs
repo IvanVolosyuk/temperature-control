@@ -6,6 +6,7 @@ use axum::{
 };
 use std::sync::Arc;
 use tower_http::services::ServeDir;
+use tower_http::compression::CompressionLayer;
 use std::sync::RwLock;
 use serde::{Serialize, Deserialize};
 use temperature_protocol::relay::set_relay;
@@ -69,6 +70,7 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
         .route("/api/relay", post(control_relay))
         .route("/api/disable", post(disable_heater))
         .nest_service("/static", ServeDir::new("apps/server/static"))
+        .layer(CompressionLayer::new())
         .with_state(app_state);
 
     println!("Starting web server on http://localhost:8080");
