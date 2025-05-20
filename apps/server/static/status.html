@@ -619,7 +619,11 @@
             }
         });
 
-        setInterval(updateUI, 1000);
+        setInterval(() => {
+            if (document.hasFocus()) {
+                updateUI();
+            }
+        }, 1000);
         updateUI();
     </script>
 
