@@ -23,7 +23,7 @@
 </head>
 <body>
 
-    <h1 class="page-title">Room Temperature Control</h1>
+    <h1 class="page-title">Temperature Control</h1>
 
     <div class="room-card">
         <h2 class="room-title">Bedroom</h2>
@@ -85,7 +85,13 @@
         </div>
 
         <div class="divider">
-            <h3 class="section-title section-title--history">Temperature History</h3>
+            <h3 class="section-title section-title--history">
+                <span>Temperature History</span>
+                <div class="chart-zoom-buttons">
+                    <button id="bedroom-zoom-out" class="button button--chart-zoom">-</button>
+                    <button id="bedroom-zoom-in" class="button button--chart-zoom">+</button>
+                </div>
+            </h3>
             <div class="chart-container">
                 <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
             </div>
@@ -125,7 +131,13 @@
         </div>
 
         <div class="divider">
-            <h3 class="section-title section-title--history">Temperature History</h3>
+            <h3 class="section-title section-title--history">
+                <span>Temperature History</span>
+                <div class="chart-zoom-buttons">
+                    <button id="kids-bedroom-zoom-out" class="button button--chart-zoom">-</button>
+                    <button id="kids-bedroom-zoom-in" class="button button--chart-zoom">+</button>
+                </div>
+            </h3>
             <div class="chart-container">
                 <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
             </div>
@@ -365,7 +377,7 @@
                     chart.options.scales.x.min += move;
                     chart.options.scales.x.max += move;
                 }
-                var offset = (chart.options.scales.x.max - chart.options.scales.x.min) * 0.05;
+                var offset = (chart.options.scales.x.max - chart.options.scales.x.min) * 0.03;
                 if (lastTimestamp + offset > chart.options.scales.x.max && keepScrolling) {
                     console.log('move: ' + chart.options.scales.x.max + " lastTimestamp " + lastTimestamp + " offset" + offset);
                     var move = lastTimestamp + offset - chart.options.scales.x.max;
@@ -378,15 +390,6 @@
             }
             chart.update();
         }
-
-        // Track if user has manually zoomed/panned
-        [bedroomChart, kidsBedroomChart].forEach(chart => {
-            chart.isZoomedOrPanned = false;
-            const chartElement = chart.canvas;
-            chartElement.addEventListener('mousedown', () => chart.isZoomedOrPanned = true); // Simple flag, might need more robust logic with chartjs-plugin-zoom events
-            chartElement.addEventListener('touchstart', () => chart.isZoomedOrPanned = true);
-            chartElement.addEventListener('wheel', () => chart.isZoomedOrPanned = true);
-        });
 
         // Track last update timestamp for both rooms
         let lastUpdateTimestamp = {
@@ -657,6 +660,29 @@
             }
         }, 1000);
         updateUI();
+
+        function zoomOutChart(chart) {
+            const now = Date.now();
+            const len = chart.data.datasets[0].data.length
+            const offset = (chart.data.datasets[0].data[len-1].x - chart.data.datasets[0].data[0].x + 1) * 0.03;
+            chart.options.scales.x.min = chart.data.datasets[0].data[0].x - offset;
+            chart.options.scales.x.max = now + offset;
+            chart.update();
+        }
+
+        function zoomInChart(chart) {
+            const now = Date.now();
+            const offset = 3600 * 1000 * 0.03;
+            chart.options.scales.x.min = now - 3600 * 1000 - offset; // Last hour
+            chart.options.scales.x.max = now + offset;
+            chart.update();
+        }
+
+        // Add click handlers for zoom buttons
+        document.getElementById('bedroom-zoom-out').addEventListener('click', () => zoomOutChart(bedroomChart));
+        document.getElementById('bedroom-zoom-in').addEventListener('click', () => zoomInChart(bedroomChart));
+        document.getElementById('kids-bedroom-zoom-out').addEventListener('click', () => zoomOutChart(kidsBedroomChart));
+        document.getElementById('kids-bedroom-zoom-in').addEventListener('click', () => zoomInChart(kidsBedroomChart));
     </script>
 
 </body>

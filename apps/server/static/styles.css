@@ -17,6 +17,8 @@
     --status-disabled-color: #facc15; /* yellow-400 */
     --status-timer-color: #facc15; /* yellow-400 */
 
+    --button-transparent-border: rgba(255, 255, 255, 0.1);
+
     --button-default-bg: #6b7280; /* gray-500 */
     --button-default-text: var(--text-white);
     --button-default-hover-bg: #4b5563; /* gray-600 */
@@ -67,6 +69,8 @@
         --status-timer-color: #ca8a04;
         --text-status-loading: #4b5563;
 
+        --button-transparent-border: rgba(0, 0, 0, 0.1);
+
         --button-default-bg: #e5e7eb; /* gray-200 */
         --button-default-text: var(--text-black);
         --button-default-hover-bg: #d1d5db; /* gray-300 */
@@ -103,7 +107,7 @@
 body {
     background-color: var(--bg-primary);
     color: var(--text-primary);
-    padding: 1.5rem; /* p-6 */
+    padding: 1.0rem; /* p-4 */
     font-family: 'Inter', sans-serif; /* from existing style */
     margin: 0;
 }
@@ -139,6 +143,9 @@ body {
 
 .section-title--history { /* for Temperature History specific margin */
     margin-bottom: 0.5rem; /* mb-2 */
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .status-text {
@@ -329,4 +336,31 @@ body { /* from existing */
 }
 button img, button svg { /* from existing */
     flex-shrink: 0;
+}
+
+.chart-zoom-buttons {
+    display: flex;
+    /* justify-content: flex-end; */ /* Parent now handles this */
+    align-items: center;
+    /* margin-bottom: 0.5rem; */ /* No longer needed here */
+    gap: 0.25rem;
+}
+
+.button--chart-zoom {
+    padding: 0.25rem 1.0rem;
+    font-size: 1.125rem;
+    line-height: 1rem;
+    border-radius: 0.25rem;
+    background-color: transparent;
+    color: var(--text-tertiary);
+    border: 1px solid var(--button-transparent-border);
+    width: auto; /* Override full-width default for these specific buttons */
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.button--chart-zoom:hover {
+    background-color: var(--border-color);
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
 }
