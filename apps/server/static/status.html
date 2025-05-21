@@ -44,6 +44,41 @@
         /* Dark mode styles */
         @media (prefers-color-scheme: dark) {
         }
+
+        /* Light mode styles */
+        @media (prefers-color-scheme: light) {
+            body {
+                background-color: #f3f4f6; /* Light background */
+                color: #1f2937; /* Dark text */
+            }
+            .bg-gray-800 {
+                background-color: #ffffff; /* White panel background */
+            }
+            .text-gray-100 {
+                color: #1f2937; /* Dark text */
+            }
+            .text-gray-200 {
+                color: #374151; /* Darker heading text */
+            }
+            .text-gray-300 {
+                color: #4b5563; /* Darker subheading text */
+            }
+            .text-gray-400 {
+                color: #6b7280; /* Darker label text */
+            }
+            .text-gray-500 {
+                color: #9ca3af; /* Darker status text */
+            }
+            .bg-gray-500 {
+                background-color: #e5e7eb; /* Lighter button background */
+            }
+            .hover\:bg-gray-600:hover {
+                background-color: #d1d5db; /* Lighter button hover background */
+            }
+            .border-gray-700 {
+                border-color: #d1d5db; /* Lighter border color */
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-900 p-6 text-gray-100">
@@ -144,8 +179,7 @@
         }
 
         var makeSettings = function() {
-            const isDarkMode = true;
-            // window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const isDarkMode =  window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
             const textColor = isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
             const currentTempColor = isDarkMode ? 'rgba(100, 180, 225, 0.25)' : 'rgb(59, 130, 146, 0.25)';
