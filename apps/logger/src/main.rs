@@ -88,7 +88,7 @@ impl LogPrinter {
 }
 
 impl MessageHandler<LoggerProto> for LogPrinter {
-    fn on_message(&mut self, src: std::net::SocketAddr, msg: LoggerProto) -> anyhow::Result<()> {
+    async fn on_message(&mut self, src: std::net::SocketAddr, msg: LoggerProto) -> anyhow::Result<()> {
         let date = Local::now();
         let curr_ts = msg.current_ts();
         let mut out = String::new();
@@ -142,7 +142,7 @@ impl MessageHandler<LoggerProto> for LogPrinter {
 }
 
 
-fn main() -> Result<()> {
+async fn main() -> Result<()> {
     let mut log = LogPrinter::new();
-    FragmentCombiner::new(&mut log).main_loop("192.168.0.1:6001")
+    FragmentCombiner::new(&mut log).main_loop("192.168.0.1:6001").await
 }

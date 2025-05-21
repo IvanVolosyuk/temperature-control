@@ -504,7 +504,7 @@ impl Server {
 }
 
 impl MessageHandler<DeviceMessage> for Server {
-    fn on_message(
+    async fn on_message(
         &mut self,
         src: std::net::SocketAddr,
         msg: DeviceMessage,
@@ -547,5 +547,5 @@ async fn main() -> Result<()> {
 
     // Start the main loop using FragmentCombiner
     println!("Starting temperature server on 0.0.0.0:4000...");
-    FragmentCombiner::new(&mut server).main_loop("0.0.0.0:4000")
+    FragmentCombiner::new(&mut server).main_loop("0.0.0.0:4000").await
 }

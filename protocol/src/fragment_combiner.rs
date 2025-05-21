@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use std::collections::HashMap;
-use std::net::UdpSocket;
+use tokio::net::UdpSocket;
+use std::marker::PhantomData;
 
 #[derive(Debug)]
 struct FragInfo {
@@ -39,30 +40,34 @@ fn init_new_fragments() -> Fragments {
 }
 
 pub trait MessageHandler<T> {
-    fn on_message(&mut self, src: std::net::SocketAddr, msg: T) -> anyhow::Result<()>;
+    #[allow(async_fn_in_trait)]
+    async fn on_message(&mut self, src: std::net::SocketAddr, msg: T) -> anyhow::Result<()>;
 }
 
-pub struct FragmentCombiner<'a, T> {
+// Made FragmentCombiner generic over H, the MessageHandler type
+pub struct FragmentCombiner<'a, T: protobuf::Message, H: MessageHandler<T>> {
     hosts: HashMap<std::net::SocketAddr, Fragments>,
-    handler: &'a mut dyn MessageHandler<T>,
+    handler: &'a mut H,
+    phantom: PhantomData<&'a T>,
 }
 
-impl<T: protobuf::Message> FragmentCombiner<'_, T> {
-    pub fn new(handler: &mut dyn MessageHandler<T>) -> FragmentCombiner<T> {
+impl<'a, T: protobuf::Message, H: MessageHandler<T>> FragmentCombiner<'a, T, H> {
+    pub fn new(handler: &'a mut H) -> FragmentCombiner<'a, T, H> {
         FragmentCombiner {
             hosts: HashMap::new(),
             handler,
+            phantom: PhantomData,
         }
     }
 
-    pub fn main_loop(&mut self, bind_addr: &str) -> anyhow::Result<()> {
-        let socket = UdpSocket::bind(bind_addr)?;
+    pub async fn main_loop(&mut self, bind_addr: &str) -> anyhow::Result<()> {
+        let socket = UdpSocket::bind(bind_addr).await?;
 
         loop {
             let mut buf = [0; MAX_UDP];
-            let (sz, src) = socket.recv_from(&mut buf)?;
+            let (sz, src) = socket.recv_from(&mut buf).await?;
 
-            let res = self.add_fragment(src, &buf[0..sz]);
+            let res = self.add_fragment(src, &buf[0..sz]).await;
             match res {
                 Err(msg) => println!("{0}: ERROR: {1:?}", src.to_string(), msg),
                 Ok(()) => (),
@@ -70,7 +75,7 @@ impl<T: protobuf::Message> FragmentCombiner<'_, T> {
         }
     }
 
-    fn add_fragment(&mut self, src: std::net::SocketAddr, buf: &[u8]) -> Result<()> {
+    async fn add_fragment(&mut self, src: std::net::SocketAddr, buf: &[u8]) -> Result<()> {
         if buf.len() < 5 {
             bail!("too short message, len: {}", buf.len());
         }
@@ -121,7 +126,7 @@ impl<T: protobuf::Message> FragmentCombiner<'_, T> {
             Some(last) => {
                 if last.nfrag == curr.recv_frag {
                     let message = T::parse_from_bytes(&curr.message[0..last.total_size].to_vec())?;
-                    self.handler.on_message(src, message)?;
+                    self.handler.on_message(src, message).await?;
                 }
             }
         }
@@ -132,6 +137,7 @@ impl<T: protobuf::Message> FragmentCombiner<'_, T> {
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use tokio;
 
     use crate::fragment_combiner::{FragmentCombiner, MessageHandler, FRAG_MAGIC};
     use crate::protos::generated::dev::{DeviceMessage, RelayReport};
@@ -141,7 +147,7 @@ mod tests {
         called: bool,
     }
     impl MessageHandler<DeviceMessage> for TestHandler {
-        fn on_message(
+        async fn on_message(
             &mut self,
             _src: std::net::SocketAddr,
             _msg: DeviceMessage,
@@ -165,31 +171,31 @@ mod tests {
         Ok(message)
     }
 
-    #[test]
-    fn smoke() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn smoke() -> anyhow::Result<()> {
         let mut h = TestHandler { called: false };
         let mut f = FragmentCombiner::new(&mut h);
         let message = good_message()?;
-        f.add_fragment(addr(), &message)?;
+        f.add_fragment(addr(), &message).await?;
         assert_eq!(h.called, true);
         Ok(())
     }
-    #[test]
-    fn bad_size() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn bad_size() -> anyhow::Result<()> {
         let mut h = TestHandler { called: false };
         let mut f = FragmentCombiner::new(&mut h);
         let message: Vec<u8> = vec![FRAG_MAGIC];
-        let err = f.add_fragment(addr(), &message);
+        let err = f.add_fragment(addr(), &message).await;
         assert_eq!(err.is_err(), true);
         Ok(())
     }
-    #[test]
-    fn bad_magic() -> anyhow::Result<()> {
+    #[tokio::test]
+    async fn bad_magic() -> anyhow::Result<()> {
         let mut h = TestHandler { called: false };
         let mut f = FragmentCombiner::new(&mut h);
         let mut message: Vec<u8> = vec![FRAG_MAGIC];
         message[0] = 100;
-        let err = f.add_fragment(addr(), &message);
+        let err = f.add_fragment(addr(), &message).await;
         assert_eq!(err.is_err(), true);
         Ok(())
     }

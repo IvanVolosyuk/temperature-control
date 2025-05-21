@@ -7,6 +7,7 @@ edition = "2021"
 protobuf = "3.7.2"
 anyhow = { version = "1.0", features = ["backtrace"] }
 chrono = "0.4.19"
+tokio = { version = "1.36", features = ["net", "rt", "sync"] }
 
 [build-dependencies]
 protobuf-codegen = "3.1.0"
