@@ -8,165 +8,96 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon-192.png">
     <link rel="icon" type="image/png" sizes="512x512" href="/static/favicon-512.png">
     <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#111827"> <script src="/static/chart.js"></script>
     <!-- Using local copies of:
-    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
      -->
-    <meta name="theme-color" content="#111827"> <script src="/static/browser@4"></script>
-    <script src="/static/chart.js"></script>
     <script src="/static/hammer.min.js"></script>
     <script src="/static/chartjs-plugin-zoom"></script>
-    <link href="/static/css2" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .temperature-chart { /* Kept for consistency if referenced, but height is now on .chart-container */
-            width: 100%;
-            height: 100%; /* Fill the container */
-            max-height: 300px;
-        }
-        .chart-container {
-            position: relative;
-            height: 300px;
-            width: 100%;
-            max-width: 1400px;
-            margin: 0 auto;
-            margin-top: 1rem; /* Original margin-top for chart spacing */
-        }
-        /* Ensure icons in buttons don't shrink too much if you add them */
-        button img, button svg {
-            flex-shrink: 0;
-        }
-        /* Dark mode styles */
-        @media (prefers-color-scheme: dark) {
-        }
-
-        /* Light mode styles */
-        @media (prefers-color-scheme: light) {
-            body {
-                background-color: #f3f4f6; /* Light background */
-                color: #1f2937; /* Dark text */
-            }
-            .bg-gray-800 {
-                background-color: #ffffff; /* White panel background */
-            }
-            .text-gray-100 {
-                color: #1f2937; /* Dark text */
-            }
-            .text-gray-200 {
-                color: #374151; /* Darker heading text */
-            }
-            .text-gray-300 {
-                color: #4b5563; /* Darker subheading text */
-            }
-            .text-gray-400 {
-                color: #6b7280; /* Darker label text */
-            }
-            .text-green-400 {
-                color: #4ade80; /* Adjusted green for status messages */
-            }
-            .text-red-500 {
-                color: #ef4444; /* Adjusted red for status messages */
-            }
-            .text-gray-500 {
-                color: #9ca3af; /* Darker status text */
-            }
-            .bg-gray-500 {
-                background-color: #e5e7eb; /* Lighter button background */
-            }
-            .bg-gray-600 {
-                background-color: #d1d5db; /* Lighter unavailable button background */
-            }
-            .hover\:bg-gray-600:hover {
-                background-color: #d1d5db; /* Lighter button hover background */
-            }
-            .border-gray-700 {
-                border-color: #d1d5db; /* Lighter border color */
-            }
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css2">
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body class="bg-gray-900 p-6 text-gray-100">
+<body>
 
-    <h1 class="text-3xl font-bold mb-6 text-gray-200">Room Temperature Control</h1>
+    <h1 class="page-title">Room Temperature Control</h1>
 
-    <div class="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-        <h2 class="text-2xl font-semibold mb-4 text-gray-300">Bedroom</h2>
+    <div class="room-card">
+        <h2 class="room-title">Bedroom</h2>
 
-        <div class="mb-4">
-            <h3 class="text-xl font-medium text-gray-400 mb-1">Temperature Sensor</h3>
-            <div id="bedroom-sensor-status-container" class="flex items-center">
-                <img src="/static/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-yellow-400">
-                <span id="bedroom-sensor-text" class="text-lg text-gray-500">Loading...</span>
+        <div class="section">
+            <h3 class="section-title">Temperature Sensor</h3>
+            <div id="bedroom-sensor-status-container" class="status-indicator">
+                <img src="/static/thermometer.svg" alt="Thermometer Icon" class="status-icon">
+                <span id="bedroom-sensor-text" class="status-text">Loading...</span>
             </div>
-            <div id="bedroom-sensor-data" class="mt-2 text-gray-300 text-lg hidden">
+            <div id="bedroom-sensor-data" class="sensor-data-text hidden">
                 <p>Current: <span id="bedroom-current-temp" class="font-medium">N/A</span>°C</p>
                 <p>Target: <span id="bedroom-target-temp" class="font-medium">N/A</span>°C</p>
             </div>
         </div>
 
-        <div class="mb-4">
-            <h3 class="text-xl font-medium text-gray-400 mb-1">Heater Relay</h3>
-            <div id="bedroom-relay-status-container" class="flex items-center mb-2">
-                <img src="/static/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-yellow-400">
-                <span id="bedroom-relay-text" class="text-lg text-gray-500">Loading...</span>
+        <div class="section">
+            <h3 class="section-title">Heater Relay</h3>
+            <div id="bedroom-relay-status-container" class="status-indicator status-indicator--relay">
+                <img src="/static/power.svg" alt="Power Icon" class="status-icon">
+                <span id="bedroom-relay-text" class="status-text">Loading...</span>
             </div>
-            <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
-                <button id="bedroom-relay-toggle" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+            <div class="button-group">
+                <button id="bedroom-relay-toggle" class="button button--responsive-width button--default hidden">
                     Loading...
                 </button>
-                <button id="bedroom-control-btn" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+                <button id="bedroom-control-btn" class="button button--responsive-width button--default hidden">
                     Loading...
                 </button>
             </div>
-             <div id="bedroom-timer-status" class="text-lg text-yellow-400 mt-2 hidden"></div>
+            <div id="bedroom-timer-status" class="timer-status hidden"></div>
         </div>
-        <div class="mt-6 border-t border-gray-700 pt-4">
-            <h3 class="text-xl font-medium text-gray-400 mb-2">Temperature History</h3>
+
+        <div class="divider">
+            <h3 class="section-title section-title--history">Temperature History</h3>
             <div class="chart-container">
                 <canvas id="bedroom-temperature-chart" class="temperature-chart"></canvas>
             </div>
         </div>
     </div>
 
-    <div class="bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-        <h2 class="text-2xl font-semibold mb-4 text-gray-300">Kids Bedroom</h2>
+    <div class="room-card">
+        <h2 class="room-title">Kids Bedroom</h2>
 
-        <div class="mb-4">
-            <h3 class="text-xl font-medium text-gray-400 mb-1">Temperature Sensor</h3>
-            <div id="kids-bedroom-sensor-status-container" class="flex items-center">
-                <img src="/static/thermometer.svg" alt="Thermometer Icon" class="w-6 h-6 mr-2 text-yellow-400">
-                <span id="kids-bedroom-sensor-text" class="text-lg text-gray-500">Loading...</span>
+        <div class="section">
+            <h3 class="section-title">Temperature Sensor</h3>
+            <div id="kids-bedroom-sensor-status-container" class="status-indicator">
+                <img src="/static/thermometer.svg" alt="Thermometer Icon" class="status-icon">
+                <span id="kids-bedroom-sensor-text" class="status-text">Loading...</span>
             </div>
-            <div id="kids-bedroom-sensor-data" class="mt-2 text-gray-300 text-lg hidden">
+            <div id="kids-bedroom-sensor-data" class="sensor-data-text hidden">
                 <p>Current: <span id="kids-bedroom-current-temp" class="font-medium">N/A</span>°C</p>
                 <p>Target: <span id="kids-bedroom-target-temp" class="font-medium">N/A</span>°C</p>
             </div>
         </div>
 
-        <div class="mb-4">
-            <h3 class="text-xl font-medium text-gray-400 mb-1">Heater Relay</h3>
-            <div id="kids-bedroom-relay-status-container" class="flex items-center mb-2">
-                <img src="/static/power.svg" alt="Power Icon" class="w-6 h-6 mr-2 text-yellow-400">
-                <span id="kids-bedroom-relay-text" class="text-lg text-gray-500">Loading...</span>
+        <div class="section">
+            <h3 class="section-title">Heater Relay</h3>
+            <div id="kids-bedroom-relay-status-container" class="status-indicator status-indicator--relay">
+                <img src="/static/power.svg" alt="Power Icon" class="status-icon">
+                <span id="kids-bedroom-relay-text" class="status-text">Loading...</span>
             </div>
-             <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
-                <button id="kids-bedroom-relay-toggle" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+            <div class="button-group">
+                <button id="kids-bedroom-relay-toggle" class="button button--responsive-width button--default hidden">
                     Loading...
                 </button>
-                <button id="kids-bedroom-control-btn" class="w-full sm:w-auto px-6 py-3 rounded bg-gray-500 text-white hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-75 text-lg hidden">
+                <button id="kids-bedroom-control-btn" class="button button--responsive-width button--default hidden">
                     Loading...
                 </button>
             </div>
-            <div id="kids-bedroom-timer-status" class="text-lg text-yellow-400 mt-2 hidden"></div>
+            <div id="kids-bedroom-timer-status" class="timer-status hidden"></div>
         </div>
 
-        <div class="mt-6 border-t border-gray-700 pt-4">
-            <h3 class="text-xl font-medium text-gray-400 mb-2">Temperature History</h3>
+        <div class="divider">
+            <h3 class="section-title section-title--history">Temperature History</h3>
             <div class="chart-container">
                 <canvas id="kids-bedroom-temperature-chart" class="temperature-chart"></canvas>
             </div>
@@ -415,8 +346,7 @@
         };
 
         function updateRoomUI(roomPrefix, data) {
-            const isBedroom = roomPrefix === 'bedroom';
-            let heaterDisabledUntil = data.disabled_until * 1000;
+            const heaterDisabledUntil = data.disabled_until * 1000;
 
             // Sensor Elements
             const sensorTextEl = document.getElementById(`${roomPrefix}-sensor-text`);
@@ -433,13 +363,13 @@
             // Update Sensor UI
             if (data.sensor.available) {
                 sensorTextEl.textContent = 'Available';
-                sensorTextEl.className = 'text-lg text-green-400';
+                sensorTextEl.className = 'status-text status-text--available'; // New class
                 sensorDataEl.classList.remove('hidden');
                 currentTempEl.textContent = data.sensor.currentTemp !== null ? data.sensor.currentTemp.toFixed(1) : 'N/A';
                 targetTempEl.textContent = data.sensor.targetTemp !== null ? data.sensor.targetTemp.toFixed(1) : 'N/A';
             } else {
                 sensorTextEl.textContent = 'Unavailable';
-                sensorTextEl.className = 'text-lg text-red-500';
+                sensorTextEl.className = 'status-text status-text--unavailable'; // New class
                 sensorDataEl.classList.add('hidden');
                 currentTempEl.textContent = 'N/A';
                 targetTempEl.textContent = 'N/A';
@@ -449,59 +379,68 @@
             relayToggleBtn.classList.remove('hidden');
             controlBtn.classList.remove('hidden');
 
+            // Reset button classes before applying new state
+            relayToggleBtn.className = 'button button--responsive-width'; // Base classes
+            controlBtn.className = 'button button--responsive-width'; // Base classes
+
+
             if (data.relay.available) {
                 const isHeaterDisabled = heaterDisabledUntil && Date.now() < heaterDisabledUntil;
 
                 if (isHeaterDisabled) {
                     relayTextEl.textContent = 'Current: DISABLED';
-                    relayTextEl.className = 'text-lg text-yellow-400';
+                    relayTextEl.className = 'status-text status-text--disabled'; // New class
 
                     relayToggleBtn.textContent = 'Heater Disabled';
-                    relayToggleBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-gray-600 text-gray-400 cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 text-lg';
+                    relayToggleBtn.classList.add('button--disabled');
                     relayToggleBtn.disabled = true;
 
                     controlBtn.textContent = 'Restore Heating';
-                    controlBtn.requestDisable = false;
-                    controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-green-600 text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75 text-lg';
+                    controlBtn.classList.add('button--control-restore');
+                    controlBtn.requestDisable = false; // Keep your existing logic for this custom property
                     controlBtn.disabled = false;
 
                     const timeLeft = Math.max(0, Math.round((heaterDisabledUntil - Date.now()) / 1000));
                     const minutes = Math.floor(timeLeft / 60);
-                    const seconds = timeLeft % 60;
-                    timerStatusEl.textContent = `Automatic restore in: ${minutes} minites`;
+                    // const seconds = timeLeft % 60; // Original code used minutes
+                    timerStatusEl.textContent = `Automatic restore in: ${minutes} minutes`; // Corrected "minites"
                     timerStatusEl.classList.remove('hidden');
 
                 } else { // Not disabled, or timer expired
                     relayTextEl.textContent = `Current: ${data.relay.state.toUpperCase()}`;
-                    relayTextEl.className = 'text-lg text-green-400';
+                    relayTextEl.className = 'status-text status-text--available'; // Assuming 'available' style for ON/OFF state text
 
                     relayToggleBtn.textContent = data.relay.state === 'On' ? 'Turn Off' : 'Turn On';
-                    relayToggleBtn.className = `w-full sm:w-auto px-6 py-3 rounded text-white focus:outline-none focus:ring-2 focus:ring-opacity-75 text-lg ${data.relay.state === 'On' ? 'bg-red-600 hover:bg-red-700 focus:ring-red-400' : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-400'}`;
+                    if (data.relay.state === 'On') {
+                        relayToggleBtn.classList.add('button--relay-on');
+                    } else {
+                        relayToggleBtn.classList.add('button--relay-off');
+                    }
                     relayToggleBtn.disabled = false;
 
                     controlBtn.textContent = 'Disable Heater for 2 Hours';
-                    controlBtn.requestDisable = true;
-                    controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-yellow-600 text-gray-900 hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-75 text-lg';
+                    controlBtn.classList.add('button--control-disable');
+                    controlBtn.requestDisable = true; // Keep your existing logic
                     controlBtn.disabled = false;
                     timerStatusEl.classList.add('hidden');
                 }
             } else { // Relay unavailable
                 relayTextEl.textContent = 'Unavailable';
-                relayTextEl.className = 'text-lg text-red-500';
+                relayTextEl.className = 'status-text status-text--unavailable'; // New class
 
                 relayToggleBtn.textContent = 'Toggle (Unavailable)';
-                relayToggleBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-gray-600 text-gray-400 cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 text-lg';
+                relayToggleBtn.classList.add('button--unavailable'); // Or 'button--disabled'
                 relayToggleBtn.disabled = true;
 
                 controlBtn.textContent = 'Disable (Unavailable)';
-                controlBtn.className = 'w-full sm:w-auto px-6 py-3 rounded bg-gray-600 text-gray-400 cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-75 text-lg';
+                controlBtn.classList.add('button--unavailable'); // Or 'button--disabled'
                 controlBtn.disabled = true;
                 timerStatusEl.classList.add('hidden');
             }
 
             const chart = roomPrefix === 'bedroom' ? bedroomChart : kidsBedroomChart;
             if (data.temperature_history) {
-               updateChart(chart, data.temperature_history);
+                updateChart(chart, data.temperature_history);
             }
         }
 
@@ -622,6 +561,7 @@
             } catch (error) {
                 console.error('Error fetching status:', error);
                 // Optionally show a global error message on the UI
+                updateChart(chart, data.temperature_history);
             }
         }
 

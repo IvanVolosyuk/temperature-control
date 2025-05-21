@@ -1,0 +1,338 @@
+/* --- Color Palette (CSS Custom Properties) --- */
+:root {
+    /* Dark Mode (Default) */
+    --bg-primary: #111827; /* gray-900 */
+    --bg-secondary: #1f2937; /* gray-800 (cards) */
+    --text-primary: #f3f4f6; /* gray-100 */
+    --text-secondary: #e5e7eb; /* gray-200 (main title) */
+    --text-tertiary: #d1d5db; /* gray-300 (room title, sensor data) */
+    --text-muted: #9ca3af; /* gray-400 (section titles) */
+    --text-status-loading: #6b7280; /* gray-500 */
+    --text-white: #ffffff;
+    --text-black: #111827; /* for light buttons on light bg */
+
+    --icon-color: #facc15; /* yellow-400 */
+    --status-available-color: #4ade80; /* green-400 */
+    --status-unavailable-color: #ef4444; /* red-500 */
+    --status-disabled-color: #facc15; /* yellow-400 */
+    --status-timer-color: #facc15; /* yellow-400 */
+
+    --button-default-bg: #6b7280; /* gray-500 */
+    --button-default-text: var(--text-white);
+    --button-default-hover-bg: #4b5563; /* gray-600 */
+    --button-default-ring-color: #9ca3af; /* gray-400 */
+
+    --button-on-bg: #dc2626; /* red-600 */
+    --button-on-hover-bg: #b91c1c; /* red-700 */
+    --button-on-ring-color: #f87171; /* red-400 */
+
+    --button-off-bg: #2563eb; /* blue-600 */
+    --button-off-hover-bg: #1d4ed8; /* blue-700 */
+    --button-off-ring-color: #60a5fa; /* blue-400 */
+
+    --button-control-disable-bg: #ca8a04; /* yellow-600 */
+    --button-control-disable-text: var(--text-black);
+    --button-control-disable-hover-bg: #a16207; /* yellow-700 */
+    --button-control-disable-ring-color: #facc15; /* yellow-400 */
+
+    --button-control-restore-bg: #16a34a; /* green-600 */
+    --button-control-restore-text: var(--text-white);
+    --button-control-restore-hover-bg: #15803d; /* green-700 */
+    --button-control-restore-ring-color: #4ade80; /* green-400 */
+
+    --button-disabled-bg: #4b5563; /* gray-600 */
+    --button-disabled-text: #9ca3af; /* gray-400 */
+    --button-disabled-ring-color: #6b7280; /* gray-500 */
+
+    --border-color: #374151; /* gray-700 */
+    --shadow-color-rgb: 0, 0, 0; /* For dark mode shadows */
+}
+
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg-primary: #f3f4f6; /* gray-100 */
+        --bg-secondary: #ffffff; /* white (cards) */
+        --text-primary: #1f2937; /* gray-800 */
+        --text-secondary: #374151; /* gray-700 (main title) */
+        --text-tertiary: #4b5563; /* gray-600 (room title, sensor data) */
+        --text-muted: #6b7280; /* gray-500 (section titles) */
+        --text-status-loading: #9ca3af; /* gray-400 */
+        /* --text-white remains #ffffff */
+        /* --text-black remains #111827 */
+
+        /* Icon and status colors can often remain the same, adjust if needed */
+        /* --icon-color: #facc15; */
+        /* --status-available-color: #4ade80; */
+        /* --status-unavailable-color: #ef4444; */
+        /* --status-disabled-color: #facc15; */
+        /* --status-timer-color: #facc15; */
+
+        --button-default-bg: #e5e7eb; /* gray-200 */
+        --button-default-text: var(--text-black);
+        --button-default-hover-bg: #d1d5db; /* gray-300 */
+        --button-default-ring-color: #9ca3af; /* gray-400 */
+
+        /* Button colors for actions can be kept vibrant or adjusted */
+        /* --button-on-bg: #dc2626; */
+        /* --button-on-hover-bg: #b91c1c; */
+        /* --button-on-ring-color: #f87171; */
+
+        /* --button-off-bg: #2563eb; */
+        /* --button-off-hover-bg: #1d4ed8; */
+        /* --button-off-ring-color: #60a5fa; */
+
+        /* --button-control-disable-bg: #f59e0b; */ /* yellow-500 for better contrast on light */
+        /* --button-control-disable-text: var(--text-black); */
+        /* --button-control-disable-hover-bg: #d97706; */ /* yellow-600 */
+        /* --button-control-disable-ring-color: #f59e0b; */
+
+        /* --button-control-restore-bg: #10b981; */ /* green-500 for better contrast on light */
+        /* --button-control-restore-text: var(--text-white); */
+        /* --button-control-restore-hover-bg: #059669; */ /* green-600 */
+        /* --button-control-restore-ring-color: #10b981; */
+
+        --button-disabled-bg: #d1d5db; /* gray-300 */
+        --button-disabled-text: #9ca3af; /* gray-400 */
+        --button-disabled-ring-color: #9ca3af; /* gray-400 */
+
+        --border-color: #d1d5db; /* gray-300 */
+        --shadow-color-rgb: 0, 0, 0; /* Keep shadows subtle */
+    }
+}
+
+/* --- Base Styles --- */
+body {
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    padding: 1.5rem; /* p-6 */
+    font-family: 'Inter', sans-serif; /* from existing style */
+    margin: 0;
+}
+
+.hidden {
+    display: none !important; /* Replicating Tailwind's hidden, important if needed for overrides */
+}
+
+/* --- Typography --- */
+.page-title {
+    font-size: 1.875rem; /* text-3xl */
+    line-height: 2.25rem;
+    font-weight: 700; /* font-bold */
+    margin-bottom: 1.5rem; /* mb-6 */
+    color: var(--text-secondary);
+}
+
+.room-title {
+    font-size: 1.5rem; /* text-2xl */
+    line-height: 2rem;
+    font-weight: 600; /* font-semibold */
+    margin-bottom: 1rem; /* mb-4 */
+    color: var(--text-tertiary);
+}
+
+.section-title {
+    font-size: 1.25rem; /* text-xl */
+    line-height: 1.75rem;
+    font-weight: 500; /* font-medium */
+    color: var(--text-muted);
+    margin-bottom: 0.25rem; /* mb-1 */
+}
+
+.section-title--history { /* for Temperature History specific margin */
+    margin-bottom: 0.5rem; /* mb-2 */
+}
+
+.status-text {
+    font-size: 1.125rem; /* text-lg */
+    line-height: 1.75rem;
+    color: var(--text-status-loading); /* Default/loading state */
+}
+.status-text--available {
+    color: var(--status-available-color);
+}
+.status-text--unavailable {
+    color: var(--status-unavailable-color);
+}
+.status-text--disabled {
+    color: var(--status-disabled-color);
+}
+
+.sensor-data-text {
+    font-size: 1.125rem; /* text-lg */
+    line-height: 1.75rem;
+    color: var(--text-tertiary);
+    margin-top: 0.5rem; /* mt-2 */
+}
+.sensor-data-text p {
+    margin: 0.25rem 0;
+}
+.font-medium { /* Utility, if needed elsewhere */
+    font-weight: 500;
+}
+
+.timer-status {
+    font-size: 1.125rem; /* text-lg */
+    line-height: 1.75rem;
+    color: var(--status-timer-color);
+    margin-top: 0.5rem; /* mt-2 */
+}
+
+
+/* --- Layout & Cards --- */
+.room-card {
+    background-color: var(--bg-secondary);
+    border-radius: 0.5rem; /* rounded-lg */
+    box-shadow: 0 4px 6px -1px rgba(var(--shadow-color-rgb), 0.1), 0 2px 4px -1px rgba(var(--shadow-color-rgb), 0.06); /* shadow-md */
+    padding: 1.5rem; /* p-6 */
+    margin-bottom: 1.5rem; /* mb-6 */
+}
+
+.section {
+    margin-bottom: 1rem; /* mb-4 */
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+}
+.status-indicator--relay { /* for relay specific margin */
+    margin-bottom: 0.5rem; /* mb-2 */
+}
+
+.status-icon {
+    width: 1.5rem; /* w-6 */
+    height: 1.5rem; /* h-6 */
+    margin-right: 0.5rem; /* mr-2 */
+    /* SVG color can be controlled by 'fill' or 'stroke' attributes,
+       or if SVG uses 'currentColor', it will inherit text color.
+       If your SVGs are designed to use currentColor: */
+    color: var(--icon-color); /* text-yellow-400 */
+}
+/* If SVGs do not use currentColor, you might need to style them directly or modify SVGs */
+/* e.g. .status-icon path { fill: var(--icon-color); } */
+
+
+.button-group {
+    display: flex;
+    flex-direction: column; /* flex-col */
+    gap: 0.5rem; /* gap-2 */
+    margin-top: 0.5rem; /* mt-2 */
+}
+
+@media (min-width: 640px) { /* sm: breakpoint */
+    .button-group {
+        flex-direction: row; /* sm:flex-row */
+        align-items: center; /* sm:items-center */
+    }
+}
+
+.divider {
+    margin-top: 1.5rem; /* mt-6 */
+    border-top: 1px solid var(--border-color); /* border-t border-gray-700 */
+    padding-top: 1rem; /* pt-4 */
+}
+
+/* --- Buttons --- */
+.button {
+    padding: 0.75rem 1.5rem; /* px-6 py-3 (py-3 is 0.75rem, not exactly matching. Assuming 0.75rem for vertical padding) */
+    font-size: 1.125rem; /* text-lg */
+    line-height: 1.75rem;
+    border-radius: 0.25rem; /* rounded */
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+    width: 100%; /* w-full */
+    text-align: center;
+}
+.button:focus {
+    outline: none; /* focus:outline-none */
+    box-shadow: 0 0 0 3px var(--ring-color-focus); /* Simplified ring */
+}
+
+@media (min-width: 640px) { /* sm: breakpoint */
+    .button--responsive-width {
+        width: auto; /* sm:w-auto */
+    }
+}
+
+/* Default Button Style (used as base for unavailable/disabled if not further specified) */
+.button--default {
+    background-color: var(--button-default-bg);
+    color: var(--button-default-text);
+    --ring-color-focus: var(--button-default-ring-color);
+}
+.button--default:hover {
+    background-color: var(--button-default-hover-bg);
+}
+
+/* Relay Toggle States */
+.button--relay-on { /* Was Turn Off button */
+    background-color: var(--button-on-bg);
+    color: var(--text-white);
+    --ring-color-focus: var(--button-on-ring-color);
+}
+.button--relay-on:hover {
+    background-color: var(--button-on-hover-bg);
+}
+
+.button--relay-off { /* Was Turn On button */
+    background-color: var(--button-off-bg);
+    color: var(--text-white);
+    --ring-color-focus: var(--button-off-ring-color);
+}
+.button--relay-off:hover {
+    background-color: var(--button-off-hover-bg);
+}
+
+/* Control Button States */
+.button--control-disable {
+    background-color: var(--button-control-disable-bg);
+    color: var(--button-control-disable-text);
+    --ring-color-focus: var(--button-control-disable-ring-color);
+}
+.button--control-disable:hover {
+    background-color: var(--button-control-disable-hover-bg);
+}
+
+.button--control-restore {
+    background-color: var(--button-control-restore-bg);
+    color: var(--button-control-restore-text);
+    --ring-color-focus: var(--button-control-restore-ring-color);
+}
+.button--control-restore:hover {
+    background-color: var(--button-control-restore-hover-bg);
+}
+
+/* Disabled/Unavailable States */
+.button:disabled, .button--disabled, .button--unavailable {
+    background-color: var(--button-disabled-bg);
+    color: var(--button-disabled-text);
+    cursor: not-allowed;
+    --ring-color-focus: var(--button-disabled-ring-color);
+}
+.button:disabled:hover, .button--disabled:hover, .button--unavailable:hover {
+    background-color: var(--button-disabled-bg); /* No hover change for disabled */
+}
+
+
+/* Your existing chart styles and other utility styles can go here or remain in the <style> tag */
+/* For example: */
+body { /* from existing */
+    font-family: 'Inter', sans-serif;
+}
+.temperature-chart { /* from existing */
+    width: 100%;
+    height: 100%; /* Fill the container */
+    max-height: 300px;
+}
+.chart-container { /* from existing */
+    position: relative;
+    height: 300px;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    margin-top: 1rem;
+}
+button img, button svg { /* from existing */
+    flex-shrink: 0;
+}
