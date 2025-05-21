@@ -60,36 +60,35 @@
         /* --text-white remains #ffffff */
         /* --text-black remains #111827 */
 
-        /* Icon and status colors can often remain the same, adjust if needed */
-        /* --icon-color: #facc15; */
-        /* --status-available-color: #4ade80; */
-        /* --status-unavailable-color: #ef4444; */
-        /* --status-disabled-color: #facc15; */
-        /* --status-timer-color: #facc15; */
+        --icon-color: #f59e0b;
+        --status-available-color: #16a34a;
+        --status-unavailable-color: #dc2626;
+        --status-disabled-color: #ca8a04;
+        --status-timer-color: #ca8a04;
+        --text-status-loading: #4b5563;
 
         --button-default-bg: #e5e7eb; /* gray-200 */
         --button-default-text: var(--text-black);
         --button-default-hover-bg: #d1d5db; /* gray-300 */
         --button-default-ring-color: #9ca3af; /* gray-400 */
 
-        /* Button colors for actions can be kept vibrant or adjusted */
-        /* --button-on-bg: #dc2626; */
-        /* --button-on-hover-bg: #b91c1c; */
-        /* --button-on-ring-color: #f87171; */
+        --button-on-bg: #c81e1e;
+        --button-on-hover-bg: #b91c1c;
+        --button-on-ring-color: #f87171;
 
-        /* --button-off-bg: #2563eb; */
-        /* --button-off-hover-bg: #1d4ed8; */
-        /* --button-off-ring-color: #60a5fa; */
+        --button-off-bg: #2563eb;
+        --button-off-hover-bg: #1d4ed8;
+        --button-off-ring-color: #60a5fa;
 
-        /* --button-control-disable-bg: #f59e0b; */ /* yellow-500 for better contrast on light */
-        /* --button-control-disable-text: var(--text-black); */
-        /* --button-control-disable-hover-bg: #d97706; */ /* yellow-600 */
-        /* --button-control-disable-ring-color: #f59e0b; */
+        --button-control-disable-bg: #f59e0b;
+        --button-control-disable-text: var(--text-black);
+        --button-control-disable-hover-bg: #d97706;
+        --button-control-disable-ring-color: #f59e0b;
 
-        /* --button-control-restore-bg: #10b981; */ /* green-500 for better contrast on light */
-        /* --button-control-restore-text: var(--text-white); */
-        /* --button-control-restore-hover-bg: #059669; */ /* green-600 */
-        /* --button-control-restore-ring-color: #10b981; */
+        --button-control-restore-bg: #10b981;
+        --button-control-restore-text: var(--text-white);
+        --button-control-restore-hover-bg: #059669;
+        --button-control-restore-ring-color: #10b981;
 
         --button-disabled-bg: #d1d5db; /* gray-300 */
         --button-disabled-text: #9ca3af; /* gray-400 */
