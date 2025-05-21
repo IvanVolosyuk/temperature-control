@@ -11,7 +11,7 @@
     --text-white: #ffffff;
     --text-black: #111827; /* for light buttons on light bg */
 
-    --icon-color: #facc15; /* yellow-400 */
+    --icon-color: #c0c0c0;
     --status-available-color: #4ade80; /* green-400 */
     --status-unavailable-color: #ef4444; /* red-500 */
     --status-disabled-color: #facc15; /* yellow-400 */
@@ -60,7 +60,7 @@
         /* --text-white remains #ffffff */
         /* --text-black remains #111827 */
 
-        --icon-color: #f59e0b;
+        --icon-color: #505050;
         --status-available-color: #16a34a;
         --status-unavailable-color: #dc2626;
         --status-disabled-color: #ca8a04;
@@ -202,13 +202,8 @@ body {
     width: 1.5rem; /* w-6 */
     height: 1.5rem; /* h-6 */
     margin-right: 0.5rem; /* mr-2 */
-    /* SVG color can be controlled by 'fill' or 'stroke' attributes,
-       or if SVG uses 'currentColor', it will inherit text color.
-       If your SVGs are designed to use currentColor: */
-    color: var(--icon-color); /* text-yellow-400 */
+    color: var(--icon-color);
 }
-/* If SVGs do not use currentColor, you might need to style them directly or modify SVGs */
-/* e.g. .status-icon path { fill: var(--icon-color); } */
 
 
 .button-group {
