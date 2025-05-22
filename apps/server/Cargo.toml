@@ -4,15 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-protobuf = "3.1.0"
-anyhow = { version = "1.0", features = ["backtrace"] }
-chrono = "0.4.19"
+protobuf = "*"
+anyhow = { version = "*", features = ["backtrace"] }
+chrono = "*"
 temperature-protocol = { path = "../../protocol" }
-axum = { version = "0.7", features = ["macros"] }
-tokio = { version = "1.36", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs", "compression-full"] }
-tower = "0.4"
-futures = "0.3"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+axum = { version = "*", features = ["macros"] }
+tokio = { version = "*", features = ["full"] }
+tower-http = { version = "*", features = ["fs", "compression-full"] }
+tower = "*"
+futures = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
 

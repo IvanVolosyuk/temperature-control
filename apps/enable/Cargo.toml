@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-protobuf = "3.1.0"
-anyhow = { version = "1.0", features = ["backtrace"] }
-chrono = "0.4.19"
+protobuf = "*"
+anyhow = { version = "*", features = ["backtrace"] }
+chrono = "*"
 temperature-protocol = { path = "../../protocol" }
 
