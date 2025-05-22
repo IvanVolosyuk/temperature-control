@@ -47,6 +47,10 @@ The project is organized into a workspace with several crates:
 *   **Rust Toolchain:** Ensure you have Rust installed (visit [rust-lang.org](https://www.rust-lang.org/tools/install)).
 *   **Protocol Buffer Compiler (`protoc`):** The `protocol` crate's `build.rs` script uses `protobuf-codegen` which in turn requires the `protoc` compiler. Installation instructions can be found on the [Protocol Buffers documentation site](https://grpc.io/docs/protoc-installation/).
 
+    It's often provided by a package named `protobuf-compiler`. For example:
+    *   On systems using `apt` (like Debian/Ubuntu): `sudo apt install protobuf-compiler`
+    *   On Gentoo: `emerge dev-libs/protobuf`
+
 ### Building the Project
 
 To build all applications in the workspace:
