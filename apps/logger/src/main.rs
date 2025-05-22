@@ -142,6 +142,7 @@ impl MessageHandler<LoggerProto> for LogPrinter {
 }
 
 
+#[tokio::main]
 async fn main() -> Result<()> {
     let mut log = LogPrinter::new();
     FragmentCombiner::new(&mut log).main_loop("192.168.0.1:6001").await

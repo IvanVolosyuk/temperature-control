@@ -8,4 +8,5 @@ protobuf = "3.1.0"
 anyhow = { version = "1.0", features = ["backtrace"] }
 chrono = "0.4.19"
 temperature-protocol = { path = "../../protocol" }
+tokio = { version = "1.36"}
 
