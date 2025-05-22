@@ -8,7 +8,7 @@ const BEDROOM_TEMP_DAY_OFF: f64 = 12.0; // Power saving
 // Points are (hour_of_day, temperature_target)
 // Hour_of_day is a float from 0.0 (midnight) to 24.0 (midnight next day).
 
-static BEDROOM_INTERVALS: &[(f64, f64)] = &[
+const BEDROOM_INTERVALS: &[(f64, f64)] = &[
     (0.0,  BEDROOM_TEMP_DAY),     // Start of day temperature
     (3.0,  BEDROOM_TEMP_NIGHT),
     (5.0,  BEDROOM_TEMP_NIGHT),   // Maintain night temp
@@ -20,7 +20,7 @@ static BEDROOM_INTERVALS: &[(f64, f64)] = &[
 ];
 
 // For Irina, the temperature is constant.
-static IRINA_INTERVALS: &[(f64, f64)] = &[
+const IRINA_INTERVALS: &[(f64, f64)] = &[
     (0.0, 21.5), // Temp at 00:00 is 21.5. Any time after will take this value.
     // (24.0, 21.5) // Could add this for consistency, interpolate_fn_rust handles single point correctly.
 ];
@@ -30,7 +30,7 @@ const CHILDREN_TEMP_DAY_OFF: f64 = 12.0;
 const CHILDREN_TEMP_MORNING: f64 = 20.0;
 const CHILDREN_TEMP_EVENING: f64 = 20.0;
 
-static CHILDREN_INTERVALS: &[(f64, f64)] = &[
+const CHILDREN_INTERVALS: &[(f64, f64)] = &[
     (0.0,  CHILDREN_TEMP_EVENING),  // Start of day with previous evening's temp
     (2.5,  CHILDREN_TEMP_NIGHT),
     (4.5,  CHILDREN_TEMP_NIGHT),    // Maintain night temp

@@ -9,7 +9,7 @@ use std::fs::{File, rename};
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use crate::schedule::INTERPOLATE_INTERVALS;
 use crate::web::{ServerState, create_web_server, TemperaturePoint};
 
@@ -190,9 +190,9 @@ impl Server {
         status
     }
 
-    fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool, is_disabled: bool) -> Result<()> {
+    async fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool, is_disabled: bool) -> Result<()> {
         //Update temperature history in web state
-        let mut web_state = self.web_state.write().unwrap();
+        let mut web_state = self.web_state.write().await;
         let room_state = if device_id == 0 {
             &mut web_state.bedroom
         } else if device_id == 2 {
@@ -216,8 +216,8 @@ impl Server {
         return Ok(());
     }
 
-    fn update_web_state(&self) {
-        let mut state = self.web_state.write().unwrap();
+    async fn update_web_state(&self) {
+        let mut state = self.web_state.write().await;
 
         // Update bedroom state
         state.bedroom.sensor_available = self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP)
@@ -242,7 +242,7 @@ impl Server {
             .unwrap_or(false);
     }
 
-    fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
+    async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
         self.last_message_timestamp.insert(client_ip_str.clone(), Local::now().timestamp());
 
@@ -272,13 +272,13 @@ impl Server {
             if header_status == PrintHeaderStatus::HasStatusUpdate { "\n" } else { "\r" }
         );
         stdout().flush()?;
-        self.update_web_state();
+        self.update_web_state().await;
         Ok(())
     }
 
-    fn is_heater_disabled(&self, device_id: u32, current_timestamp: i64) -> bool {
+    async fn is_heater_disabled(&self, device_id: u32, current_timestamp: i64) -> bool {
         // Check if heater is disabled
-        let web_state = self.web_state.read().unwrap();
+        let web_state = self.web_state.read().await;
         let room_state = if device_id == 0 {
             &web_state.bedroom
         } else if device_id == 2 {
@@ -292,7 +292,7 @@ impl Server {
             .unwrap_or(false);
     }
 
-    fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
+    async fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
 
         let header_status = self.print_header(&client_ip_str, report.info.as_ref().unwrap_or(&DeviceInfo::default()));
@@ -344,7 +344,7 @@ impl Server {
             print!("{:.1} (target {:.1}) ", temp, target_temp);
             self.last_temp_deci.insert(device_id, temp);
 
-            let is_disabled = self.is_heater_disabled(device_id, current_timestamp);
+            let is_disabled = self.is_heater_disabled(device_id, current_timestamp).await;
             let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
 
             if let Some(control_strategy) = self.controls.get_mut(device_id as usize) {
@@ -404,7 +404,7 @@ impl Server {
                 print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
             }
             // Update web state after processing the report
-            self.update_history(device_id, current_timestamp, temp, target_temp, heater_on, is_disabled)?;
+            self.update_history(device_id, current_timestamp, temp, target_temp, heater_on, is_disabled).await?;
         } else {
             // Device ID out of range for configured controls/relays
             print!("{:.1} (unmanaged) ", temp);
@@ -451,7 +451,7 @@ impl Server {
 
         println!(); // End the line for sensor report
         stdout().flush()?;
-        self.update_web_state();
+        self.update_web_state().await;
         Ok(())
     }
 
@@ -512,10 +512,10 @@ impl MessageHandler<DeviceMessage> for Server {
         let mut known_message_component_found = false;
 
         if let Some(sensor_report) = msg.sensor.as_ref() {
-            self.new_sensor_report(src, sensor_report)?;
+            self.new_sensor_report(src, sensor_report).await?;
             known_message_component_found = true;
         } else if let Some(relay_report) = msg.relay.as_ref() {
-            self.new_relay_report(src, relay_report)?;
+            self.new_relay_report(src, relay_report).await?;
             known_message_component_found = true;
         } else if msg.format_diag() {
             self.format_diag(src)?;

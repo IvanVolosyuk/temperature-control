@@ -7,7 +7,7 @@ use axum::{
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tower_http::compression::CompressionLayer;
-use std::sync::RwLock;
+use tokio::sync::RwLock;
 use serde::{Serialize, Deserialize};
 use temperature_protocol::relay::set_relay;
 use chrono::Local;
@@ -93,7 +93,7 @@ async fn get_status(
     State(state): State<WebState>,
     Query(query): Query<StatusQuery>,
 ) -> axum::Json<ServerState> {
-    let server_state = state.server_state.read().unwrap();
+    let server_state = state.server_state.read().await;
     let mut response_state = (*server_state).clone();
 
     // If last_update timestamp is provided, filter temperature history
@@ -133,7 +133,7 @@ async fn control_relay(
     match set_relay(relay_hostname, request.state, 0) {
         Ok(_) => {
             // Update the web state to reflect the change
-            let mut server_state = state.server_state.write().unwrap();
+            let mut server_state = state.server_state.write().await;
             match request.room.as_str() {
                 "bedroom" => server_state.bedroom.relay_state = request.state,
                 "kids_bedroom" => server_state.kids_bedroom.relay_state = request.state,
@@ -154,7 +154,7 @@ async fn disable_heater(
     State(state): State<WebState>,
     Json(request): Json<DisableHeaterRequest>,
 ) -> axum::Json<serde_json::Value> {
-    let mut server_state = state.server_state.write().unwrap();
+    let mut server_state = state.server_state.write().await;
     let room_state = match request.room.as_str() {
         "bedroom" => &mut server_state.bedroom,
         "kids_bedroom" => &mut server_state.kids_bedroom,
