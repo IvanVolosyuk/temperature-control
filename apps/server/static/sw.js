@@ -4,13 +4,11 @@ const STATIC_ASSETS = [
     '/static/favicon.png',
     '/static/favicon-192.png',
     '/static/favicon-512.png',
-    '/static/thermometer.svg',
-    '/static/power.svg'
-    '/static/browser@4',
-    '/static/css2',
-    '/static/chart.js',
-    '/static/hammer.min.js',
     '/static/chartjs-plugin-zoom',
+    'https://cdn.jsdelivr.net/npm/chart.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js',
+    'https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom',
+    'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap',
 ];
 
 // Install event - cache static assets
