@@ -32,9 +32,9 @@
     --button-off-hover-bg: #1d4ed8; /* blue-700 */
     --button-off-ring-color: #60a5fa; /* blue-400 */
 
-    --button-control-disable-bg: #ca8a04; /* yellow-600 */
-    --button-control-disable-text: var(--text-black);
-    --button-control-disable-hover-bg: #a16207; /* yellow-700 */
+    --button-control-disable-bg: #a16207; /* yellow-700 - Made darker */
+    --button-control-disable-text: var(--text-white); /* Changed from --text-black for better contrast in dark mode */
+    --button-control-disable-hover-bg: #854d0e; /* yellow-800 - Made darker */
     --button-control-disable-ring-color: #facc15; /* yellow-400 */
 
     --button-control-restore-bg: #16a34a; /* green-600 */
