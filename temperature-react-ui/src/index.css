@@ -1,0 +1,72 @@
+/* Add these to the existing button styles in src/index.css */
+.button-disabled {
+  background-color: #9ca3af; /* gray-400 */
+  color: #e5e7eb; /* gray-200 */
+  cursor: not-allowed;
+}
+.button-disabled:hover {
+  background-color: #9ca3af;
+}
+
+.button-relay-on { /* For "Turn Off" button */
+  background-color: #ef4444; /* red-500 */
+  color: white;
+}
+.button-relay-on:hover {
+  background-color: #dc2626; /* red-600 */
+}
+
+.button-relay-off { /* For "Turn On" button */
+  background-color: #22c55e; /* green-500 */
+  color: white;
+}
+.button-relay-off:hover {
+  background-color: #16a34a; /* green-600 */
+}
+
+.button-control-disable { /* For "Disable Heater" */
+  background-color: #f97316; /* orange-500 */
+  color: white;
+}
+.button-control-disable:hover {
+  background-color: #ea580c; /* orange-600 */
+}
+
+.button-control-restore { /* For "Restore Heating" */
+  background-color: #84cc16; /* lime-500 */
+  color: white;
+}
+.button-control-restore:hover {
+  background-color: #65a30d; /* lime-600 */
+}
+
+/* Basic Button Styles (can be refined with Tailwind later) */
+.button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.button-default {
+  background-color: #e5e7eb; /* gray-200 */
+  color: #1f2937; /* gray-800 */
+}
+.button-default:hover {
+  background-color: #d1d5db; /* gray-300 */
+}
+
+.button-chart-zoom {
+  padding: 0.25rem 0.5rem;
+  background-color: #f3f4f6; /* gray-100 */
+  color: #374151; /* gray-700 */
+  border: 1px solid #d1d5db; /* gray-300 */
+}
+.button-chart-zoom:hover {
+  background-color: #e5e7eb; /* gray-200 */
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
