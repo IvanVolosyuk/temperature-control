@@ -35,24 +35,16 @@ ChartJS.register(
 interface TemperatureChartProps {
   roomName: string; // Keep roomName for potential unique chart IDs if ever needed, or logging
   roomData: RoomState | null;
+  isDarkMode: boolean; // Add isDarkMode prop
 }
 
-const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData }) => {
+const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData, isDarkMode }) => {
   const chartRef = useRef<ChartJS<'line', ChartData<'line'>['datasets'][0]['data'], string> | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   // Update chartOptions when isDarkMode changes
   useEffect(() => {
     setChartOptions(generateChartOptions(isDarkMode));
   }, [isDarkMode]);
-
-  // Effect to listen to OS theme changes for isDarkMode state
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handleChange = () => setIsDarkMode(mediaQuery.matches);
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
 
   // Effect for auto-scrolling
   useEffect(() => {
@@ -96,7 +88,6 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
   }, [roomData]);
 
   // Function to generate chart options dynamically based on dark mode
-  // This will be used for initial state and when dark mode changes.
   const generateChartOptions = (currentIsDarkMode: boolean): ChartOptions<'line'> => {
     const gridColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     const textColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
@@ -145,7 +136,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
     };
   };
 
-  // Initialize chartOptions state using the isDarkMode state
+  // Initialize chartOptions state using the isDarkMode prop
   const [chartOptions, setChartOptions] = useState<ChartOptions<'line'>>(() => generateChartOptions(isDarkMode));
 
   // Memoize chart data
@@ -234,11 +225,23 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
           <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom('all')}>All</button>
         </div>
       </div>
-      <div className="chart-container relative h-64 md:h-72 lg:h-80">
+      <div className="chart-container relative w-full h-[300px] overflow-hidden">
         <Line
           key={roomName}
           ref={chartRef}
-          options={chartOptions}
+          options={{
+            ...chartOptions,
+            maintainAspectRatio: false,
+            responsive: true,
+            layout: {
+              padding: {
+                top: 10,
+                right: 10,
+                bottom: 10,
+                left: 10
+              }
+            }
+          }}
           data={memoizedChartData}
         />
       </div>

@@ -8,17 +8,36 @@ const POLLING_INTERVAL = 5000; // 5 seconds for polling
 const ROOM_ID_BEDROOM = 'bedroom';
 const ROOM_ID_KIDS = 'kids_bedroom';
 
-
 function App() {
   const [bedroomData, setBedroomData] = useState<RoomState | null>(null);
   const [kidsRoomData, setKidsRoomData] = useState<RoomState | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    // Check if user has a saved preference
+    const saved = localStorage.getItem('darkMode');
+    if (saved !== null) {
+      return saved === 'true';
+    }
+    // If no saved preference, use system preference
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
 
   const lastUpdateTimestampRef = useRef<{ bedroom: number | null; kids_bedroom: number | null }>({
     bedroom: null,
     kids_bedroom: null,
   });
+
+  // Update dark mode class on HTML element
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    // Save preference
+    localStorage.setItem('darkMode', isDarkMode.toString());
+  }, [isDarkMode]);
 
   const fetchStatus = useCallback(async (isInitialLoad = false) => {
     if (!isInitialLoad) {
@@ -121,15 +140,34 @@ function App() {
   };
 
   if (isLoading && !bedroomData && !kidsRoomData) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">Loading initial data...</div>;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
+        Loading initial data...
+      </div>
+    );
   }
 
   return (
-    <div className="bg-gray-100 dark:bg-gray-900 min-h-screen p-4 font-sans">
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold text-center text-gray-800 dark:text-gray-200">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 font-sans">
+      <header className="mb-6 flex justify-between items-center">
+        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">
           Temperature Control
         </h1>
+        <button
+          onClick={() => setIsDarkMode(!isDarkMode)}
+          className="p-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-200"
+          aria-label="Toggle dark mode"
+        >
+          {isDarkMode ? (
+            <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          ) : (
+            <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          )}
+        </button>
       </header>
       {error && (
         <div className="mb-4 p-3 bg-red-100 dark:bg-red-800 border border-red-400 dark:border-red-600 text-red-700 dark:text-red-200 rounded text-center">
@@ -143,7 +181,8 @@ function App() {
           roomData={bedroomData}
           onControlRelay={handleControlRelay}
           onDisableHeater={handleDisableHeater}
-          isLoading={isLoading && !bedroomData} // Pass loading specific to this card if data is absent
+          isLoading={isLoading && !bedroomData}
+          isDarkMode={isDarkMode}
         />
         <RoomCard
           roomName="Kids Bedroom"
@@ -152,6 +191,7 @@ function App() {
           onControlRelay={handleControlRelay}
           onDisableHeater={handleDisableHeater}
           isLoading={isLoading && !kidsRoomData}
+          isDarkMode={isDarkMode}
         />
       </main>
     </div>
