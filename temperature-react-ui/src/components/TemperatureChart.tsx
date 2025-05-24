@@ -13,6 +13,7 @@ import {
   ChartOptions,
   ChartData
 } from 'chart.js';
+import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import { RoomState } from '../types';
 
@@ -159,9 +160,9 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
   return (
     <div className="chart-container relative h-64 md:h-72 lg:h-80">
       <Line
-        key={roomName} // Adding key based on roomName to ensure React replaces the component if roomName changes
+        key={roomName}
         ref={chartRef}
-        options={memoizedChartOptions}
+        options={memoizedChartOptions()}
         data={memoizedChartData}
       />
     </div>
