@@ -17,6 +17,8 @@ import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
 import { RoomState } from '../types';
 
+const OFFSET_FRACTION = 0.03; // Ported from TC.jsx
+
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -36,6 +38,7 @@ interface TemperatureChartProps {
 
 const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData }) => {
   const chartRef = useRef<ChartJS<'line', ChartData<'line'>['datasets'][0]['data'], string> | null>(null);
+  const prevLastTimestampRef = useRef<number | null>(null); // For auto-scroll logic from TC.jsx
   const [isDarkMode, setIsDarkMode] = useState(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
   useEffect(() => {
@@ -44,6 +47,63 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
     mediaQuery.addEventListener('change', handleChange);
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
+
+  // Effect for initial zoom AND auto-scrolling, adapted from TC.jsx
+  useEffect(() => {
+    if (chartRef.current && roomData?.temperature_history && roomData.temperature_history.length > 0) {
+      const chart = chartRef.current;
+      const historyData = roomData.temperature_history;
+      const currentXMin = chart.options?.scales?.x?.min as number | undefined;
+      const currentXMax = chart.options?.scales?.x?.max as number | undefined;
+
+      const lastDataPoint = historyData[historyData.length - 1];
+      const newLastTimestamp = lastDataPoint.timestamp * 1000;
+
+      if (prevLastTimestampRef.current === null) {
+        // Initial load: set default zoom (e.g., 1 hour)
+        const now = Date.now();
+        if (chart.options && chart.options.scales && chart.options.scales.x) {
+          chart.options.scales.x.min = now - 1 * 60 * 60 * 1000; // Default to 1 hour
+          chart.options.scales.x.max = now + (1 * 60 * 60 * 1000) * OFFSET_FRACTION * 2; // Add buffer
+          chart.update('none');
+        }
+      } else if (prevLastTimestampRef.current !== null && currentXMin !== undefined && currentXMax !== undefined) {
+        // Auto-scroll logic based on TC.jsx
+        const prevTimestamp = prevLastTimestampRef.current;
+        const prevLastVisible = prevTimestamp >= currentXMin && prevTimestamp <= currentXMax;
+        const newLastVisible = newLastTimestamp >= currentXMin && newLastTimestamp <= currentXMax;
+
+        if (prevLastVisible && !newLastVisible && newLastTimestamp > prevTimestamp) {
+          // The new point is to the right and out of view, prev point was in view, and it's a newer point.
+          // This implies newLastTimestamp > currentXMax.
+          const viewWidth = currentXMax - currentXMin;
+          const offset = viewWidth * OFFSET_FRACTION;
+          
+          // Calculate move to bring the newLastTimestamp into view with an offset, maintaining viewWidth (TC.jsx style)
+          const move = newLastTimestamp + offset - currentXMax;
+
+          if (chart.options && chart.options.scales && chart.options.scales.x) {
+            chart.options.scales.x.min = currentXMin + move;
+            chart.options.scales.x.max = currentXMax + move;
+            chart.update('none'); 
+          }
+        }
+      }
+      prevLastTimestampRef.current = newLastTimestamp;
+    } else if (!roomData?.temperature_history || roomData.temperature_history.length === 0) {
+      prevLastTimestampRef.current = null; // Reset if data is cleared
+      // Optionally, reset zoom to a default if chart exists
+      if (chartRef.current) {
+        const chart = chartRef.current;
+        const now = Date.now();
+        if (chart.options && chart.options.scales && chart.options.scales.x) {
+          chart.options.scales.x.min = now - 1 * 60 * 60 * 1000; 
+          chart.options.scales.x.max = now + (1 * 60 * 60 * 1000) * OFFSET_FRACTION * 2;
+          // chart.update('none'); // Avoid update if no data, could be jarring
+        }
+      }
+    }
+  }, [roomData, OFFSET_FRACTION]); // Dependencies: roomData and OFFSET_FRACTION (though constant, good practice if it could change)
 
   // Memoize chart options
   const memoizedChartOptions = useCallback((): ChartOptions<'line'> => {
@@ -157,15 +217,62 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
   // Adding a key to the Line component can help React differentiate chart instances
   // if multiple charts could be rendered and swapped. For a stable chart per room, might not be strictly needed
   // if options/data props are stable.
+
+  const handleZoom = (hours: number | 'all') => {
+    if (chartRef.current && roomData?.temperature_history && roomData.temperature_history.length > 0) {
+      const chart = chartRef.current;
+      const now = Date.now();
+      let minTime;
+
+      if (hours === 'all') {
+        // Find the earliest timestamp in the data
+        minTime = roomData.temperature_history[0].timestamp * 1000;
+      } else {
+        minTime = now - hours * 60 * 60 * 1000;
+      }
+      const offset = (now - minTime) * OFFSET_FRACTION;
+
+      // Ensure options and scales are defined before trying to set min/max
+      if (chart.options && chart.options.scales && chart.options.scales.x) {
+        chart.options.scales.x.min = minTime - offset;
+        chart.options.scales.x.max = now + offset;
+        chart.update('none'); // 'none' for no animation, as in TC.jsx
+      } else {
+        console.error('Chart options or scales are not defined for zoom.');
+      }
+    } else if (chartRef.current && hours !== 'all') {
+      // Handle case with no history data but a specific time range (e.g., 1h)
+      // This will show an empty chart zoomed to the last 'hours' period.
+      const chart = chartRef.current;
+      const now = Date.now();
+      const minTime = now - hours * 60 * 60 * 1000;
+      const offset = (now - minTime) * OFFSET_FRACTION;
+      if (chart.options && chart.options.scales && chart.options.scales.x) {
+        chart.options.scales.x.min = minTime - offset;
+        chart.options.scales.x.max = now + offset;
+        chart.update('none');
+      }
+    }
+  };
+
   return (
-    <div className="chart-container relative h-64 md:h-72 lg:h-80">
-      <Line
-        key={roomName}
-        ref={chartRef}
-        options={memoizedChartOptions()}
-        data={memoizedChartData}
-      />
-    </div>
+    <>
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">Temperature History</h3>
+        <div className="chart-zoom-buttons flex gap-1">
+          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom(1)}>1h</button>
+          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom('all')}>All</button>
+        </div>
+      </div>
+      <div className="chart-container relative h-64 md:h-72 lg:h-80">
+        <Line
+          key={roomName}
+          ref={chartRef}
+          options={memoizedChartOptions()}
+          data={memoizedChartData}
+        />
+      </div>
+    </>
   );
 };
 

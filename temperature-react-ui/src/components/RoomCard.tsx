@@ -142,14 +142,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
 
       {/* Temperature History Section */}
       <div>
-        <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400 mb-2 flex justify-between items-center">
-          <span>Temperature History</span>
-          {/* Zoom buttons functionality to be added later with chart library */}
-          <div className="chart-zoom-buttons flex gap-1">
-            <button id={`${roomApiName}-zoom-out`} className="button-chart-zoom">-</button>
-            <button id={`${roomApiName}-zoom-in`} className="button-chart-zoom">+</button>
-          </div>
-        </h3>
+        {/* Title will be moved to TemperatureChart component */}
         <TemperatureChart roomName={roomName} roomData={roomData} />
       </div>
     </div>
