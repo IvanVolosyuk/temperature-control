@@ -4,7 +4,7 @@ import { getStatus, controlRelay, disableHeater } from './services/api';
 import { RoomState } from './types';
 import './index.css';
 
-const POLLING_INTERVAL = 5000; // 5 seconds for polling
+const POLLING_INTERVAL = 1000; // 1 seconds for polling
 const ROOM_ID_BEDROOM = 'bedroom';
 const ROOM_ID_KIDS = 'kids_bedroom';
 

@@ -40,6 +40,7 @@ interface TemperatureChartProps {
 
 const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData, isDarkMode }) => {
   const chartRef = useRef<ChartJS<'line', ChartData<'line'>['datasets'][0]['data'], string> | null>(null);
+  const prevLastTimestampRef = useRef<number | null>(null);
 
   // Update chartOptions when isDarkMode changes
   useEffect(() => {
@@ -57,35 +58,30 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     const currentXMin = xScale.min as number;
     const currentXMax = xScale.max as number;
 
-    let prevLastVisible = true;
-    const dataset = chart.data.datasets[0];
-    if (dataset.data.length > 0) {
-      const firstPoint = dataset.data[0] as { x: number };
-      if (firstPoint && typeof firstPoint.x === 'number') {
-        prevLastVisible = currentXMin <= firstPoint.x && firstPoint.x <= currentXMax;
-      }
+    var prevPointVisible = true;
+    if (prevLastTimestampRef.current) {
+      const prev = prevLastTimestampRef.current;
+      prevPointVisible = prev >= currentXMin && prev <= currentXMax;
     }
 
     const history = roomData?.temperature_history;
     if (history && history.length > 0) {
       const lastDataPoint = history[history.length - 1];
       const newLastTimestamp = lastDataPoint.timestamp * 1000;
-      const newLastVisible = newLastTimestamp >= currentXMin && newLastTimestamp <= currentXMax;
+      const viewWidth = currentXMax - currentXMin;
+      const offset = viewWidth * OFFSET_FRACTION;
+      const newLastVisible = newLastTimestamp + offset <= currentXMax;
 
-      if (prevLastVisible && !newLastVisible) {
-        const viewWidth = currentXMax - currentXMin;
-        const offset = viewWidth * OFFSET_FRACTION;
+      if (prevLastTimestampRef.current != newLastTimestamp && prevPointVisible && !newLastVisible) {
         const move = newLastTimestamp + offset - currentXMax;
-        
-        if (chart.options.scales?.x) {
-          const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
-          xScale.min = currentXMin + move;
-          xScale.max = currentXMax + move;
-          chart.update('none');
-        }
+        chart.options.scales.x.min = currentXMin + move;
+        chart.options.scales.x.max = currentXMax + move;
+        chart.update('none');
       }
+      prevLastTimestampRef.current = newLastTimestamp;
     }
   }, [roomData]);
+
 
   // Function to generate chart options dynamically based on dark mode
   const generateChartOptions = (currentIsDarkMode: boolean): ChartOptions<'line'> => {
@@ -96,12 +92,13 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
       min: Date.now() - 3600 * 1000,
       max: Date.now() + OFFSET_FRACTION * 3600 * 1000,
       type: 'time',
+      offset: true,
       time: {
         unit: 'minute',
         tooltipFormat: 'HH:mm:ss',
         displayFormats: { minute: 'HH:mm', hour: 'HH:00' },
       },
-      ticks: { color: textColor, maxTicksLimit: 8, autoSkip: true },
+      ticks: { color: textColor, font: {size: 18}, maxTicksLimit: 8, autoSkip: true },
       title: { display: true, text: 'Time', color: textColor, font: { size: 14 } },
       grid: { color: gridColor },
     };
@@ -109,11 +106,19 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     return {
       responsive: true,
       maintainAspectRatio: false,
+      layout: {
+        padding: {
+          top: 0,
+          right: 0,
+          bottom: 10,
+          left: 0
+        }
+      },
       scales: {
         x: xScalesConfig,
         y: {
-          title: { display: true, text: 'Temperature (°C)', color: textColor, font: { size: 14 } },
-          ticks: { color: textColor, stepSize: 1, callback: (value) => `${Number(value).toFixed(1)}°C` },
+          title: { display: true, text: 'Temperature (°C)', color: textColor, font: { size: 16 } },
+          ticks: { color: textColor, font: {size: 16}, stepSize: 0.1, callback: (value) => `${Number(value).toFixed(1)}°C` },
           grid: { color: gridColor },
         },
       },
@@ -185,7 +190,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
 
     const chart = chartRef.current;
     if (!chart?.options?.scales?.x) return;
-    
+
     const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
 
     if (hours === 'all') {
@@ -229,19 +234,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
         <Line
           key={roomName}
           ref={chartRef}
-          options={{
-            ...chartOptions,
-            maintainAspectRatio: false,
-            responsive: true,
-            layout: {
-              padding: {
-                top: 10,
-                right: 10,
-                bottom: 10,
-                left: 10
-              }
-            }
-          }}
+          options={chartOptions}
           data={memoizedChartData}
         />
       </div>

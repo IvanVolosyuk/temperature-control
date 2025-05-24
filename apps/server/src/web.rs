@@ -1,7 +1,7 @@
 use axum::{
     routing::{get, post},
     Router,
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse},
     extract::{State, Json, Query},
     http::{StatusCode, Uri}, // Added Uri
 };
