@@ -11,7 +11,8 @@ import {
   Legend,
   TimeScale,
   ChartOptions,
-  ChartData
+  ChartData,
+  ScaleOptionsByType
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
 import zoomPlugin from 'chartjs-plugin-zoom';
@@ -56,20 +57,22 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
   // Effect for auto-scrolling
   useEffect(() => {
     const chart = chartRef.current;
-
-    if (!chart) {
+    if (!chart || !chart.options?.scales?.x) {
       return;
     }
 
-    const currentXMin = chart.options?.scales?.x?.min as number | undefined;
-    const currentXMax = chart.options?.scales?.x?.max as number | undefined;
+    const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
+    const currentXMin = xScale.min as number;
+    const currentXMax = xScale.max as number;
 
-    var prevLastVisible = true;
-    if (chart.data.datasets[0].length != 0) {
-      const prevLastTimestamp = chart.data.datasets[0].data[0].x;
-      prevLastVisible = currentXMin <= prevLastTimestamp && prevLastTimestamp <= currentXMax;
+    let prevLastVisible = true;
+    const dataset = chart.data.datasets[0];
+    if (dataset.data.length > 0) {
+      const firstPoint = dataset.data[0] as { x: number };
+      if (firstPoint && typeof firstPoint.x === 'number') {
+        prevLastVisible = currentXMin <= firstPoint.x && firstPoint.x <= currentXMax;
+      }
     }
-
 
     const history = roomData?.temperature_history;
     if (history && history.length > 0) {
@@ -81,9 +84,13 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
         const viewWidth = currentXMax - currentXMin;
         const offset = viewWidth * OFFSET_FRACTION;
         const move = newLastTimestamp + offset - currentXMax;
-        chart.options.scales.x.min = currentXMin + move;
-        chart.options.scales.x.max = currentXMax + move;
-        chart.update('none');
+        
+        if (chart.options.scales?.x) {
+          const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
+          xScale.min = currentXMin + move;
+          xScale.max = currentXMax + move;
+          chart.update('none');
+        }
       }
     }
   }, [roomData]);
@@ -182,11 +189,13 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
   const handleZoom = (hours: number | 'all') => {
     const history = roomData?.temperature_history;
     const now = Date.now();
-    let newMinTime;
-    let newMaxTime;
+    let newMinTime: number;
+    let newMaxTime: number;
 
-    if (!chartRef.current) return;
     const chart = chartRef.current;
+    if (!chart?.options?.scales?.x) return;
+    
+    const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
 
     if (hours === 'all') {
       if (history && history.length > 0) {
@@ -211,13 +220,9 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
       newMaxTime = now + offset;
     }
 
-    if (chart.options && chart.options.scales && chart.options.scales.x) {
-      chart.options.scales.x.min = newMinTime;
-      chart.options.scales.x.max = newMaxTime;
-      chart.update();
-    } else {
-      console.error("Chart options or x-scale not available for zoom.");
-    }
+    xScale.min = newMinTime;
+    xScale.max = newMaxTime;
+    chart.update();
   };
 
   return (
