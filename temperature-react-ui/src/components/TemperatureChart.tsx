@@ -72,11 +72,16 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
       const offset = viewWidth * OFFSET_FRACTION;
       const newLastVisible = newLastTimestamp + offset <= currentXMax;
 
-      if (prevLastTimestampRef.current != newLastTimestamp && prevPointVisible && !newLastVisible) {
-        const move = newLastTimestamp + offset - currentXMax;
-        chart.options.scales.x.min = currentXMin + move;
-        chart.options.scales.x.max = currentXMax + move;
-        chart.update('none');
+      if (prevLastTimestampRef.current != newLastTimestamp) {
+        // Handle new data point
+
+        if (prevPointVisible && !newLastVisible) {
+          // auto scroll when crossing the edge
+          const move = newLastTimestamp + offset - currentXMax;
+          chart.options.scales.x.min = currentXMin + move;
+          chart.options.scales.x.max = currentXMax + move;
+          chart.update('none');
+        }
       }
       prevLastTimestampRef.current = newLastTimestamp;
     }
@@ -94,13 +99,24 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
       type: 'time',
       offset: true,
       time: {
-        unit: 'minute',
+        minUnit: 'minute', // Don't go below minute precision for ticks
         tooltipFormat: 'HH:mm:ss',
-        displayFormats: { minute: 'HH:mm', hour: 'HH:00' },
+        displayFormats: {
+          minute: 'HH:mm',
+          hour: 'HH:00'
+        },
+        units: [
+          { unit: 'minute', stepSize: 1 },
+          { unit: 'minute', stepSize: 5 },
+          { unit: 'minute', stepSize: 10 },
+          { unit: 'minute', stepSize: 15 },
+          { unit: 'minute', stepSize: 30 },
+          { unit: 'hour', stepSize: 1 },
+        ]
       },
-      ticks: { color: textColor, font: {size: 18}, maxTicksLimit: 8, autoSkip: true },
+      ticks: { color: textColor, font: {size: 18}, maxTicksLimit: 6, autoSkip: true, major: { enabled: true} },
       title: { display: true, text: 'Time', color: textColor, font: { size: 14 } },
-      grid: { color: gridColor },
+      grid: { color: gridColor, offset: false },
     };
 
     return {
