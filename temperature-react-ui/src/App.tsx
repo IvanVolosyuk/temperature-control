@@ -27,6 +27,7 @@ function App() {
     bedroom: null,
     kids_bedroom: null,
   });
+  const intervalIdRef = useRef<number | null>(null);
 
   // Update dark mode class on HTML element
   useEffect(() => {
@@ -115,8 +116,36 @@ function App() {
 
   useEffect(() => {
     fetchStatus(true); // Initial fetch
-    const intervalId = setInterval(() => fetchStatus(false), POLLING_INTERVAL);
-    return () => clearInterval(intervalId); // Cleanup on unmount
+
+    const startPolling = () => {
+      if (intervalIdRef.current === null) {
+        intervalIdRef.current = window.setInterval(() => fetchStatus(false), POLLING_INTERVAL);
+      }
+    };
+
+    const stopPolling = () => {
+      if (intervalIdRef.current !== null) {
+        clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        fetchStatus(false); // Fetch immediately when tab becomes visible
+        startPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopPolling();
+      document.removeEventListener('visibilitychange', handleVisibilityChange); // Cleanup on unmount
+    };
   }, [fetchStatus]);
 
   const handleApiAction = async (action: () => Promise<any>) => {
