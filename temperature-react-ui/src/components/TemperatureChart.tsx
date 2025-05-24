@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'; // Added useMemo, useCallback
+import React, { useEffect, useRef, useState, useMemo} from 'react'; // Added useMemo, useCallback
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -38,9 +38,14 @@ interface TemperatureChartProps {
 
 const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData }) => {
   const chartRef = useRef<ChartJS<'line', ChartData<'line'>['datasets'][0]['data'], string> | null>(null);
-  const prevLastTimestampRef = useRef<number | null>(null); // For auto-scroll logic from TC.jsx
   const [isDarkMode, setIsDarkMode] = useState(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
+  // Update chartOptions when isDarkMode changes
+  useEffect(() => {
+    setChartOptions(generateChartOptions(isDarkMode));
+  }, [isDarkMode]);
+
+  // Effect to listen to OS theme changes for isDarkMode state
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = () => setIsDarkMode(mediaQuery.matches);
@@ -48,83 +53,66 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
-  // Effect for initial zoom AND auto-scrolling, adapted from TC.jsx
+  // Effect for auto-scrolling
   useEffect(() => {
-    if (chartRef.current && roomData?.temperature_history && roomData.temperature_history.length > 0) {
-      const chart = chartRef.current;
-      const historyData = roomData.temperature_history;
-      const currentXMin = chart.options?.scales?.x?.min as number | undefined;
-      const currentXMax = chart.options?.scales?.x?.max as number | undefined;
+    const chart = chartRef.current;
 
-      const lastDataPoint = historyData[historyData.length - 1];
+    if (!chart) {
+      return;
+    }
+
+    const currentXMin = chart.options?.scales?.x?.min as number | undefined;
+    const currentXMax = chart.options?.scales?.x?.max as number | undefined;
+
+    var prevLastVisible = true;
+    if (chart.data.datasets[0].length != 0) {
+      const prevLastTimestamp = chart.data.datasets[0].data[0].x;
+      prevLastVisible = currentXMin <= prevLastTimestamp && prevLastTimestamp <= currentXMax;
+    }
+
+
+    const history = roomData?.temperature_history;
+    if (history && history.length > 0) {
+      const lastDataPoint = history[history.length - 1];
       const newLastTimestamp = lastDataPoint.timestamp * 1000;
+      const newLastVisible = newLastTimestamp >= currentXMin && newLastTimestamp <= currentXMax;
 
-      if (prevLastTimestampRef.current === null) {
-        // Initial load: set default zoom (e.g., 1 hour)
-        const now = Date.now();
-        if (chart.options && chart.options.scales && chart.options.scales.x) {
-          chart.options.scales.x.min = now - 1 * 60 * 60 * 1000; // Default to 1 hour
-          chart.options.scales.x.max = now + (1 * 60 * 60 * 1000) * OFFSET_FRACTION * 2; // Add buffer
-          chart.update('none');
-        }
-      } else if (prevLastTimestampRef.current !== null && currentXMin !== undefined && currentXMax !== undefined) {
-        // Auto-scroll logic based on TC.jsx
-        const prevTimestamp = prevLastTimestampRef.current;
-        const prevLastVisible = prevTimestamp >= currentXMin && prevTimestamp <= currentXMax;
-        const newLastVisible = newLastTimestamp >= currentXMin && newLastTimestamp <= currentXMax;
-
-        if (prevLastVisible && !newLastVisible && newLastTimestamp > prevTimestamp) {
-          // The new point is to the right and out of view, prev point was in view, and it's a newer point.
-          // This implies newLastTimestamp > currentXMax.
-          const viewWidth = currentXMax - currentXMin;
-          const offset = viewWidth * OFFSET_FRACTION;
-          
-          // Calculate move to bring the newLastTimestamp into view with an offset, maintaining viewWidth (TC.jsx style)
-          const move = newLastTimestamp + offset - currentXMax;
-
-          if (chart.options && chart.options.scales && chart.options.scales.x) {
-            chart.options.scales.x.min = currentXMin + move;
-            chart.options.scales.x.max = currentXMax + move;
-            chart.update('none'); 
-          }
-        }
-      }
-      prevLastTimestampRef.current = newLastTimestamp;
-    } else if (!roomData?.temperature_history || roomData.temperature_history.length === 0) {
-      prevLastTimestampRef.current = null; // Reset if data is cleared
-      // Optionally, reset zoom to a default if chart exists
-      if (chartRef.current) {
-        const chart = chartRef.current;
-        const now = Date.now();
-        if (chart.options && chart.options.scales && chart.options.scales.x) {
-          chart.options.scales.x.min = now - 1 * 60 * 60 * 1000; 
-          chart.options.scales.x.max = now + (1 * 60 * 60 * 1000) * OFFSET_FRACTION * 2;
-          // chart.update('none'); // Avoid update if no data, could be jarring
-        }
+      if (prevLastVisible && !newLastVisible) {
+        const viewWidth = currentXMax - currentXMin;
+        const offset = viewWidth * OFFSET_FRACTION;
+        const move = newLastTimestamp + offset - currentXMax;
+        chart.options.scales.x.min = currentXMin + move;
+        chart.options.scales.x.max = currentXMax + move;
+        chart.update('none');
       }
     }
-  }, [roomData, OFFSET_FRACTION]); // Dependencies: roomData and OFFSET_FRACTION (though constant, good practice if it could change)
+  }, [roomData]);
 
-  // Memoize chart options
-  const memoizedChartOptions = useCallback((): ChartOptions<'line'> => {
-    const gridColor = isDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
-    const textColor = isDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
+  // Function to generate chart options dynamically based on dark mode
+  // This will be used for initial state and when dark mode changes.
+  const generateChartOptions = (currentIsDarkMode: boolean): ChartOptions<'line'> => {
+    const gridColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    const textColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
+
+    const xScalesConfig: any = {
+      min: Date.now() - 3600 * 1000,
+      max: Date.now() + OFFSET_FRACTION * 3600 * 1000,
+      type: 'time',
+      time: {
+        unit: 'minute',
+        tooltipFormat: 'HH:mm:ss',
+        displayFormats: { minute: 'HH:mm', hour: 'HH:00' },
+      },
+      ticks: { color: textColor, maxTicksLimit: 8, autoSkip: true },
+      title: { display: true, text: 'Time', color: textColor, font: { size: 14 } },
+      grid: { color: gridColor },
+    };
 
     return {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        x: {
-          type: 'time',
-          time: {
-            unit: 'minute',
-            tooltipFormat: 'HH:mm:ss',
-            displayFormats: { minute: 'HH:mm', hour: 'HH:00' },
-          },
-          ticks: { color: textColor, maxTicksLimit: 8, autoSkip: true },
-          title: { display: true, text: 'Time', color: textColor, font: { size: 14 } },
-          grid: { color: gridColor },
-        },
+        x: xScalesConfig,
         y: {
           title: { display: true, text: 'Temperature (°C)', color: textColor, font: { size: 14 } },
           ticks: { color: textColor, stepSize: 1, callback: (value) => `${Number(value).toFixed(1)}°C` },
@@ -143,15 +131,15 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
           },
         },
         zoom: {
-          pan: { enabled: true, mode: 'x', threshold: 5 }, // Added threshold
-          zoom: { mode: 'x', wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, drag: { enabled: false } }, // Adjusted speed, disabled drag zoom
+          pan: { enabled: true, mode: 'x', threshold: 5 },
+          zoom: { mode: 'x', wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, drag: { enabled: false } },
         },
       },
-      animation: false, // Potentially disable animation to prevent issues during rapid updates
-      // If using react-chartjs-2, direct manipulation of chart instance for destroy might not be needed
-      // as the component should handle it. The key is stable props.
     };
-  }, [isDarkMode]); // Dependency: isDarkMode
+  };
+
+  // Initialize chartOptions state using the isDarkMode state
+  const [chartOptions, setChartOptions] = useState<ChartOptions<'line'>>(() => generateChartOptions(isDarkMode));
 
   // Memoize chart data
   const memoizedChartData = useMemo((): ChartData<'line'> => {
@@ -172,7 +160,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
             const index = context.dataIndex;
             const pointData = roomData?.temperature_history[index];
             if (!pointData) return isDarkMode ? 'rgba(100, 180, 243, 0.7)' : 'rgba(59, 130, 246, 0.7)';
-            
+
             const color = pointData.heater_on ? pointHeaterOnColor : pointHeaterOffColor;
             const disabledColor = pointData.heater_on ? disabledOnColor : disabledOffColor;
             return pointData.is_disabled ? disabledColor : color;
@@ -189,69 +177,46 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
         },
       ],
     };
-  }, [roomData, isDarkMode]); // Dependencies: roomData, isDarkMode
-
-  // The useEffect for chart instance destruction is generally handled by react-chartjs-2 <Line /> component itself
-  // when its key changes or it unmounts. Explicitly destroying might conflict.
-  // However, if issues persist, manual destruction in a useEffect cleanup is a fallback.
-  // For now, rely on react-chartjs-2's handling with memoized props.
-
-  // useEffect(() => {
-  //   const chart = chartRef.current;
-  //   return () => {
-  //     if (chart) {
-  //       console.log("Destroying chart instance for room:", roomName);
-  //       chart.destroy();
-  //     }
-  //   };
-  // }, [roomName]); // Keying by roomName if charts are truly independent and replaced
-
-  if (!roomData || roomData.temperature_history.length === 0) {
-    return (
-      <div className="chart-container relative h-64 md:h-72 lg:h-80 flex items-center justify-center text-gray-500 dark:text-gray-400">
-        No temperature data available for {roomName}.
-      </div>
-    );
-  }
-  
-  // Adding a key to the Line component can help React differentiate chart instances
-  // if multiple charts could be rendered and swapped. For a stable chart per room, might not be strictly needed
-  // if options/data props are stable.
+  }, [roomData, isDarkMode]);
 
   const handleZoom = (hours: number | 'all') => {
-    if (chartRef.current && roomData?.temperature_history && roomData.temperature_history.length > 0) {
-      const chart = chartRef.current;
-      const now = Date.now();
-      let minTime;
+    const history = roomData?.temperature_history;
+    const now = Date.now();
+    let newMinTime;
+    let newMaxTime;
 
-      if (hours === 'all') {
-        // Find the earliest timestamp in the data
-        minTime = roomData.temperature_history[0].timestamp * 1000;
-      } else {
-        minTime = now - hours * 60 * 60 * 1000;
-      }
-      const offset = (now - minTime) * OFFSET_FRACTION;
+    if (!chartRef.current) return;
+    const chart = chartRef.current;
 
-      // Ensure options and scales are defined before trying to set min/max
-      if (chart.options && chart.options.scales && chart.options.scales.x) {
-        chart.options.scales.x.min = minTime - offset;
-        chart.options.scales.x.max = now + offset;
-        chart.update('none'); // 'none' for no animation, as in TC.jsx
+    if (hours === 'all') {
+      if (history && history.length > 0) {
+        newMinTime = history[0].timestamp * 1000;
+        const dataRange = now - newMinTime;
+        const offset = dataRange * OFFSET_FRACTION;
+        newMinTime -= offset;
+        newMaxTime = now + offset;
       } else {
-        console.error('Chart options or scales are not defined for zoom.');
+        // No data, but 'All' selected - default to 1 hour
+        newMinTime = now - 1 * 60 * 60 * 1000;
+        const offset = (1 * 60 * 60 * 1000) * OFFSET_FRACTION;
+        newMinTime -= offset;
+        newMaxTime = now + offset;
       }
-    } else if (chartRef.current && hours !== 'all') {
-      // Handle case with no history data but a specific time range (e.g., 1h)
-      // This will show an empty chart zoomed to the last 'hours' period.
-      const chart = chartRef.current;
-      const now = Date.now();
-      const minTime = now - hours * 60 * 60 * 1000;
-      const offset = (now - minTime) * OFFSET_FRACTION;
-      if (chart.options && chart.options.scales && chart.options.scales.x) {
-        chart.options.scales.x.min = minTime - offset;
-        chart.options.scales.x.max = now + offset;
-        chart.update('none');
-      }
+    } else {
+      // Specific hour range (e.g., 1h)
+      newMinTime = now - hours * 60 * 60 * 1000;
+      const dataRange = now - newMinTime;
+      const offset = dataRange * OFFSET_FRACTION;
+      newMinTime -= offset;
+      newMaxTime = now + offset;
+    }
+
+    if (chart.options && chart.options.scales && chart.options.scales.x) {
+      chart.options.scales.x.min = newMinTime;
+      chart.options.scales.x.max = newMaxTime;
+      chart.update();
+    } else {
+      console.error("Chart options or x-scale not available for zoom.");
     }
   };
 
@@ -268,7 +233,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData 
         <Line
           key={roomName}
           ref={chartRef}
-          options={memoizedChartOptions()}
+          options={chartOptions}
           data={memoizedChartData}
         />
       </div>
