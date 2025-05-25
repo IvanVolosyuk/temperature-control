@@ -4,7 +4,7 @@ import { getStatus, controlRelay, disableHeater, overrideTemperature } from './s
 import { RoomState } from './types';
 import './index.css';
 
-const POLLING_INTERVAL = 1000; // 1 seconds for polling
+// const POLLING_INTERVAL = 1000; // Polling is being removed
 const ROOM_ID_BEDROOM = 'bedroom';
 const ROOM_ID_KIDS = 'kids_bedroom';
 
@@ -27,7 +27,9 @@ function App() {
     bedroom: null,
     kids_bedroom: null,
   });
-  const intervalIdRef = useRef<number | null>(null);
+  // const intervalIdRef = useRef<number | null>(null); // For polling, will be removed or repurposed
+  const ws = useRef<WebSocket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
 
   // Update dark mode class on HTML element
   useEffect(() => {
@@ -114,49 +116,235 @@ function App() {
   };
 
 
+  const connectAttemptTimeoutRef = useRef<number | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const MAX_RECONNECT_ATTEMPTS = 5;
+  const RECONNECT_DELAY_MS = 3000; // 3 seconds
+
+  const lastTimestampsBeforeHiddenRef = useRef<{ bedroom: number | null; kids_bedroom: number | null } | null>(null);
+
+
   useEffect(() => {
-    fetchStatus(true); // Initial fetch
+    // Initial fetch is handled by WebSocket connection sending full state
+    // fetchStatus(true); 
 
-    const startPolling = () => {
-      if (intervalIdRef.current === null) {
-        intervalIdRef.current = window.setInterval(() => fetchStatus(false), POLLING_INTERVAL);
+    const connectWebSocket = (isReconnect = false) => {
+      if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+        console.log("WebSocket already open.");
+        return;
       }
+      if (ws.current && ws.current.readyState === WebSocket.CONNECTING) {
+        console.log("WebSocket already connecting.");
+        return;
+      }
+
+      // Determine WebSocket protocol based on current window protocol
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+      ws.current = new WebSocket(wsUrl);
+      console.log(`Attempting to connect WebSocket... (Reconnect: ${isReconnect})`);
+
+      ws.current.onopen = () => {
+        console.log('WebSocket connected');
+        setIsConnected(true);
+        setError(null); 
+        reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
+        if (connectAttemptTimeoutRef.current) {
+          clearTimeout(connectAttemptTimeoutRef.current);
+          connectAttemptTimeoutRef.current = null;
+        }
+        // Initial state is sent by backend on connect.
+        // If this was a reconnect after being hidden, fetchStatus would have already run.
+      };
+
+      ws.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          // console.log('WebSocket message received:', data);
+
+          setBedroomData(prev => ({
+            ...(prev || data.bedroom),
+            ...data.bedroom,
+            temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.bedroom.temperature_history, true) // Assume full state for now
+          }));
+    
+          setKidsRoomData(prev => ({
+            ...(prev || data.kids_bedroom),
+            ...data.kids_bedroom,
+            temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.kids_bedroom.temperature_history, true) // Assume full state for now
+          }));
+    
+          // Update last update timestamps from the new data
+          if (data.bedroom.temperature_history.length > 0) {
+            lastUpdateTimestampRef.current.bedroom = data.bedroom.temperature_history[data.bedroom.temperature_history.length - 1].timestamp;
+          } else if (prevData => prevData?.bedroom?.temperature_history?.length > 0 && data.bedroom.temperature_history.length === 0) {
+             // If history was cleared by an update, reset timestamp
+            lastUpdateTimestampRef.current.bedroom = 0;
+          }
+
+          if (data.kids_bedroom.temperature_history.length > 0) {
+            lastUpdateTimestampRef.current.kids_bedroom = data.kids_bedroom.temperature_history[data.kids_bedroom.temperature_history.length - 1].timestamp;
+          } else if (prevData => prevData?.kids_bedroom?.temperature_history?.length > 0 && data.kids_bedroom.temperature_history.length === 0) {
+            // If history was cleared by an update, reset timestamp
+            lastUpdateTimestampRef.current.kids_bedroom = 0;
+          }
+          setIsLoading(false); // Data received, no longer initial loading
+
+        } catch (e) {
+          console.error('Error processing WebSocket message:', e);
+          // setError('Error processing data from server.'); // Avoid setting global error for every minor processing issue
+        }
+      };
+
+      ws.current.onerror = (event) => {
+        console.error('WebSocket error:', event);
+        setError('WebSocket connection error.'); // General error
+        // onclose will handle reconnection attempts.
+      };
+
+      ws.current.onclose = (event) => {
+        console.log('WebSocket disconnected:', event.code, event.reason);
+        setIsConnected(false);
+        
+        if (connectAttemptTimeoutRef.current) {
+          clearTimeout(connectAttemptTimeoutRef.current);
+          connectAttemptTimeoutRef.current = null;
+        }
+
+        // Check if the disconnection was intentional (e.g., tab hidden, component unmount)
+        // ws.current might be null if unmounted and cleanup ran.
+        const intentionalClose = ws.current?.readyState === WebSocket.CLOSING || document.hidden;
+
+        if (!intentionalClose && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttemptsRef.current++;
+          setError(`WebSocket disconnected. Attempting reconnect ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS}...`);
+          console.log(`Attempting reconnect ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS} in ${RECONNECT_DELAY_MS}ms`);
+          
+          connectAttemptTimeoutRef.current = window.setTimeout(async () => {
+            setIsLoading(true);
+            const latestTimestampForQuery = Math.max(
+              lastUpdateTimestampRef.current.bedroom || 0,
+              lastUpdateTimestampRef.current.kids_bedroom || 0
+            );
+            console.log(`Reconnecting: Fetching missed updates since ${latestTimestampForQuery}`);
+            await fetchStatus(false, latestTimestampForQuery > 0 ? latestTimestampForQuery : undefined);
+            setIsLoading(false);
+            connectWebSocket(true); // Attempt to reconnect
+          }, RECONNECT_DELAY_MS);
+
+        } else if (!intentionalClose) {
+          setError('WebSocket disconnected. Max reconnect attempts reached. Please refresh the page or check your connection.');
+          console.error('Max reconnect attempts reached.');
+        }
+      };
     };
 
-    const stopPolling = () => {
-      if (intervalIdRef.current !== null) {
-        clearInterval(intervalIdRef.current);
-        intervalIdRef.current = null;
-      }
-    };
+    connectWebSocket(false); // Initial connection
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = async () => {
       if (document.hidden) {
-        stopPolling();
+        console.log('Tab hidden, closing WebSocket if open.');
+        // Store timestamps before closing
+        lastTimestampsBeforeHiddenRef.current = { ...lastUpdateTimestampRef.current };
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+          ws.current.close(1000, "Tab hidden"); // Normal closure
+        }
+        if (connectAttemptTimeoutRef.current) { // Clear any pending reconnect timeout
+            clearTimeout(connectAttemptTimeoutRef.current);
+            connectAttemptTimeoutRef.current = null;
+            reconnectAttemptsRef.current = 0; // Reset attempts as this is an intentional close
+        }
       } else {
-        fetchStatus(false); // Fetch immediately when tab becomes visible
-        startPolling();
+        console.log('Tab visible.');
+        if (!ws.current || ws.current.readyState === WebSocket.CLOSED) {
+          console.log('Attempting to reconnect WebSocket due to tab visibility.');
+          setIsLoading(true);
+          setError('Re-establishing connection...');
+          
+          const queryTimestamp = Math.max(
+            lastTimestampsBeforeHiddenRef.current?.bedroom || 0,
+            lastTimestampsBeforeHiddenRef.current?.kids_bedroom || 0,
+            lastUpdateTimestampRef.current.bedroom || 0, // Also consider current if somehow updated
+            lastUpdateTimestampRef.current.kids_bedroom || 0
+          );
+
+          console.log(`Tab visible: Fetching missed updates since ${queryTimestamp}`);
+          await fetchStatus(false, queryTimestamp > 0 ? queryTimestamp : undefined);
+          // fetchStatus updates lastUpdateTimestampRef internally
+          
+          setIsLoading(false);
+          connectWebSocket(true); // Reconnect WebSocket
+        } else if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+          console.log('WebSocket already open on tab visible.');
+          setError(null); // Clear any "reconnecting" messages
+        }
       }
     };
 
-    startPolling();
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      stopPolling();
-      document.removeEventListener('visibilitychange', handleVisibilityChange); // Cleanup on unmount
+      console.log('Cleaning up App component...');
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (connectAttemptTimeoutRef.current) {
+        clearTimeout(connectAttemptTimeoutRef.current);
+      }
+      if (ws.current) {
+        console.log('Closing WebSocket connection (component unmount)');
+        ws.current.onclose = null; // Prevent onclose handler from trying to reconnect
+        ws.current.onerror = null;
+        ws.current.close(1000, "Component unmounting");
+        ws.current = null;
+      }
+      reconnectAttemptsRef.current = 0; 
     };
-  }, [fetchStatus]);
+  }, [fetchStatus]); // fetchStatus is stable due to useCallback
+
+  // Helper to merge temperature history arrays
+  // Added isFullStateUpdate flag: if true, incoming replaces existing if timestamps are older or same.
+  // This is because WebSocket sends full state, so we don't want to just append.
+  const mergeTemperatureHistory = (
+    existing: RoomState['temperature_history'] = [],
+    incoming: RoomState['temperature_history'] = [],
+    isFullStateUpdate = false
+  ) => {
+    if (!incoming || incoming.length === 0) {
+      return isFullStateUpdate ? [] : existing; // If full update and incoming is empty, history is cleared
+    }
+    if (!existing || existing.length === 0 || isFullStateUpdate) {
+      // If it's a full state update, or no existing history, incoming is the new history
+      // Sort incoming just in case, though backend should send sorted
+      return [...incoming].sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    // This part is for merging partial updates (e.g. from HTTP catch-up)
+    const combined = [...existing];
+    const lastExistingTimestamp = existing[existing.length - 1]?.timestamp || 0;
+
+    for (const point of incoming) {
+      if (point.timestamp > lastExistingTimestamp) {
+        combined.push(point);
+      }
+      // If not a full state update, we don't modify existing points
+      // If it IS a full state update, the logic above (isFullStateUpdate=true) handles it by replacing.
+    }
+    // Sort and limit history size if needed
+    combined.sort((a, b) => a.timestamp - b.timestamp);
+    // const MAX_HISTORY_POINTS = 2000; // Example: Keep last 2000 points
+    // return combined.slice(-MAX_HISTORY_POINTS);
+    return combined;
+  };
 
   const handleApiAction = async (action: () => Promise<any>) => {
-    setIsLoading(true); // Indicate loading for the action
+    // No longer calling fetchStatus here, WebSocket should provide updates.
+    // setIsLoading(true); // Consider if this global loading is still desired for API actions
     try {
       await action();
-      await fetchStatus(false); // Refresh data after action
+      // await fetchStatus(false); // Refresh data after action - REMOVED
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to perform action.');
     } finally {
-      setIsLoading(false);
+      // setIsLoading(false);
     }
   };
 
@@ -172,10 +360,11 @@ function App() {
     return handleApiAction(() => overrideTemperature(roomApiName, temperature));
   };
 
-  if (isLoading && !bedroomData && !kidsRoomData) {
+  if (isLoading && !bedroomData && !kidsRoomData && !isConnected) {
+    // Show loading only if not connected and no data yet
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
-        Loading initial data...
+        Loading initial data and connecting to server...
       </div>
     );
   }
@@ -184,7 +373,7 @@ function App() {
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 font-sans">
       <header className="mb-6 flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-200">
-          Temperature Control
+          Temperature Control <span className={`text-sm ${isConnected ? 'text-green-500' : 'text-red-500'}`}>{isConnected ? '● Connected' : '● Disconnected'}</span>
         </h1>
         <button
           onClick={() => setIsDarkMode(!isDarkMode)}

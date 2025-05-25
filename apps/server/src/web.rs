@@ -2,10 +2,12 @@ use axum::{
     routing::{get, post},
     Router,
     response::{Html, IntoResponse},
-    extract::{State, Json, Query},
-    http::{StatusCode, Uri}, // Added Uri
+    extract::{State, Json, Query, ws::{WebSocketUpgrade, WebSocket, Message}}, // Added WebSocketUpgrade, WebSocket, Message
+    http::{StatusCode, Uri},
 };
+use futures_util::{stream::StreamExt, sink::SinkExt}; // Added for WebSocket stream and sink
 use std::sync::Arc;
+use tokio::sync::broadcast; // Added for broadcast channel
 use tower_http::services::ServeDir;
 use tower_http::compression::CompressionLayer;
 use tokio::sync::RwLock; // Keep tokio RwLock
@@ -19,6 +21,7 @@ use tokio::fs; // Added tokio::fs for reading index.html
 #[derive(Clone)]
 pub struct WebState {
     pub server_state: Arc<RwLock<ServerState>>,
+    pub ws_tx: broadcast::Sender<String>, // Sender for broadcasting serialized ServerState
 }
 
 #[derive(Default, Clone, Serialize)]
@@ -73,8 +76,14 @@ pub struct OverrideTemperatureRequest {
 }
 
 
-pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
-    let app_state = WebState { server_state };
+pub async fn create_web_server(
+    server_state: Arc<RwLock<ServerState>>,
+    ws_tx: broadcast::Sender<String>, // Accept ws_tx as a parameter
+) {
+    let app_state = WebState {
+        server_state,
+        ws_tx, // Use the passed ws_tx
+    };
 
     // Path to the React app's dist directory - adjust if server runs from different location
     let react_dist_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -104,9 +113,10 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
         .route("/api/relay", post(control_relay))
         .route("/api/disable", post(disable_heater))
         .route("/api/override_temperature", post(override_temperature_handler))
+        .route("/ws", get(websocket_handler)) // Added WebSocket route
         // Mount the SPA router (serving static files and index.html)
         // IMPORTANT: This should generally be the last thing if it has a broad fallback
-        .merge(spa_router) 
+        .merge(spa_router)
         .layer(CompressionLayer::new())
         .with_state(app_state);
 
@@ -174,6 +184,17 @@ async fn control_relay(
                 "kids_bedroom" => server_state.kids_bedroom.relay_state = request.state,
                 _ => {}
             }
+            // Broadcast the updated state
+            let full_state_snapshot = server_state.clone();
+            drop(server_state); // Release write lock before broadcast
+
+            if let Ok(json_payload) = serde_json::to_string(&full_state_snapshot) {
+                if state.ws_tx.send(json_payload).is_err() {
+                    // eprintln!("No active WebSocket subscribers to send update to for control_relay.");
+                }
+            } else {
+                eprintln!("Failed to serialize ServerState for WebSocket broadcast in control_relay");
+            }
             axum::Json(serde_json::json!({ "success": true }))
         }
         Err(e) => axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }))
@@ -184,10 +205,10 @@ async fn disable_heater(
     State(state): State<WebState>,
     Json(request): Json<DisableHeaterRequest>,
 ) -> axum::Json<serde_json::Value> {
-    let mut server_state = state.server_state.write().await;
+    let mut server_state_lock = state.server_state.write().await;
     let room_state_arc = match request.room.as_str() {
-        "bedroom" => &mut server_state.bedroom,
-        "kids_bedroom" => &mut server_state.kids_bedroom,
+        "bedroom" => &mut server_state_lock.bedroom,
+        "kids_bedroom" => &mut server_state_lock.kids_bedroom,
         _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" }))
     };
 
@@ -209,17 +230,78 @@ async fn disable_heater(
     } else {
         room_state_arc.disabled_until = None;
     }
+
+    // Broadcast the updated state
+    let full_state_snapshot = server_state_lock.clone();
+    drop(server_state_lock); // Release write lock before broadcast
+
+    if let Ok(json_payload) = serde_json::to_string(&full_state_snapshot) {
+        if state.ws_tx.send(json_payload).is_err() {
+            // eprintln!("No active WebSocket subscribers to send update to for disable_heater.");
+        }
+    } else {
+        eprintln!("Failed to serialize ServerState for WebSocket broadcast in disable_heater");
+    }
     axum::Json(serde_json::json!({ "success": true }))
+}
+
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<WebState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(mut socket: WebSocket, state: WebState) {
+    // Subscribe to broadcast channel
+    let mut rx = state.ws_tx.subscribe();
+
+    // Send the initial state
+    let server_state = state.server_state.read().await;
+    let initial_state_json = serde_json::to_string(&*server_state).unwrap_or_else(|e| {
+        eprintln!("Error serializing initial state: {}", e);
+        "{}".to_string() // Send empty JSON on error
+    });
+    if socket.send(Message::Text(initial_state_json)).await.is_err() {
+        eprintln!("Failed to send initial state to WebSocket client");
+        return; // Client disconnected or error
+    }
+    drop(server_state); // Release read lock
+
+    // Continuously listen for broadcast messages and forward them
+    loop {
+        tokio::select! {
+            Ok(msg_str) = rx.recv() => {
+                if socket.send(Message::Text(msg_str)).await.is_err() {
+                    // Client disconnected
+                    break;
+                }
+            }
+            // Handle incoming messages from client (optional, mostly for ping/pong or client-initiated close)
+            Some(Ok(msg)) = socket.next() => {
+                if let Message::Close(_) = msg {
+                    // Client initiated close
+                    break;
+                }
+                // You can process other client messages here if needed
+            }
+            else => {
+                // All other branches are closed, client disconnected
+                break;
+            }
+        }
+    }
+    println!("WebSocket client disconnected");
 }
 
 async fn override_temperature_handler(
     State(state): State<WebState>,
     Json(request): Json<OverrideTemperatureRequest>,
 ) -> axum::Json<serde_json::Value> {
-    let mut server_state = state.server_state.write().await;
+    let mut server_state_lock = state.server_state.write().await;
     let room_state_arc = match request.room.as_str() {
-        "bedroom" => &mut server_state.bedroom,
-        "kids_bedroom" => &mut server_state.kids_bedroom,
+        "bedroom" => &mut server_state_lock.bedroom,
+        "kids_bedroom" => &mut server_state_lock.kids_bedroom,
         _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
     };
 
@@ -232,5 +314,16 @@ async fn override_temperature_handler(
         room_state_arc.override_until = None;
     }
 
+    // Broadcast the updated state
+    let full_state_snapshot = server_state_lock.clone();
+    drop(server_state_lock); // Release write lock before broadcast
+
+    if let Ok(json_payload) = serde_json::to_string(&full_state_snapshot) {
+        if state.ws_tx.send(json_payload).is_err() {
+            // eprintln!("No active WebSocket subscribers to send update to for override_temperature_handler.");
+        }
+    } else {
+        eprintln!("Failed to serialize ServerState for WebSocket broadcast in override_temperature_handler");
+    }
     axum::Json(serde_json::json!({ "success": true }))
 }

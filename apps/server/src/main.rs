@@ -130,6 +130,7 @@ struct Server {
 
     controls: Vec<Box<dyn Control>>,
     web_state: Arc<RwLock<ServerState>>,
+    ws_tx: tokio::sync::broadcast::Sender<String>,
 }
 
 #[derive(PartialEq, Debug)]
@@ -140,7 +141,7 @@ enum PrintHeaderStatus {
 }
 
 impl Server {
-    fn new() -> Server {
+    fn new(ws_tx: tokio::sync::broadcast::Sender<String>) -> Server {
         let controls: Vec<Box<dyn Control>> = vec![
             Box::new(PWMControl::new(-0.36)),
             Box::new(SimpleControl::new()),
@@ -154,6 +155,7 @@ impl Server {
             relay_confirmations: HashMap::new(),
             controls,
             web_state: Arc::new(RwLock::new(ServerState::default())),
+            ws_tx,
         }
     }
 
@@ -256,6 +258,23 @@ impl Server {
         state.kids_bedroom.relay_state = self.last_relay_on_status.get(KIDS_RELAY_EXPECTED_IP)
             .copied()
             .unwrap_or(false);
+
+        // After updating the state, serialize and broadcast it
+        let state_clone_for_broadcast = state.clone();
+        drop(state); // Release the lock before heavy operation if possible, though serialize is fast
+
+        match serde_json::to_string(&state_clone_for_broadcast) {
+            Ok(json_state) => {
+                if let Err(e) = self.ws_tx.send(json_state) {
+                    // This error typically means no active subscribers.
+                    // It's not critical for the server's main operation but can be logged for debugging.
+                    // eprintln!("Failed to broadcast server state update: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error serializing server state for broadcast: {}", e);
+            }
+        }
     }
 
     async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
@@ -586,13 +605,23 @@ impl MessageHandler<DeviceMessage> for Server {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize the server state
-    let mut server = Server::new();
-    let web_state = server.web_state.clone();
+    // Create a broadcast channel for WebSocket updates
+    let (ws_tx, _) = tokio::sync::broadcast::channel::<String>(100);
 
-    // Start the web server in a separate task
+    // Initialize the server state, passing the sender
+    let mut server = Server::new(ws_tx.clone());
+    let web_state_for_axum = server.web_state.clone();
+
+    // Start the web server in a separate task, passing its own clone of ws_tx
+    let ws_tx_for_web_server = ws_tx.clone();
     tokio::spawn(async move {
-        create_web_server(web_state).await;
+        // The create_web_server function in web.rs needs to be adapted
+        // to accept ws_tx directly or to get it from WebState if we embed it there.
+        // Based on previous steps, WebState now includes ws_tx.
+        // We need to ensure create_web_server initializes WebState correctly with this ws_tx.
+        // The current WebState in web.rs is constructed with a ws_tx passed to create_web_server.
+        // So, this should align.
+        create_web_server(web_state_for_axum, ws_tx_for_web_server).await;
     });
 
     // Start the main loop using FragmentCombiner
