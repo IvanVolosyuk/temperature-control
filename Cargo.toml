@@ -1,9 +1,0 @@
-[workspace]
-resolver = "2"
-members = [
-    "protocol",
-    "apps/logger",
-    "apps/udp-test",
-    "apps/enable",
-    "apps/server",
-]
