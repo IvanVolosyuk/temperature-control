@@ -7,7 +7,7 @@ This project implements a server and related utilities to manage a fleet of cust
 ## Features
 
 *   **Multi-Room Temperature Management:** Monitors and controls heating relays for multiple rooms.
-*   **Web Interface:** A web server running on `http://localhost:8080` provides:
+*   **Web Interface:** A **React/Tailwind based** web server running on `http://localhost:8080` provides:
     *   Real-time temperature, target temperature, and relay status display.
     *   Historical temperature charts.
     *   Manual control to turn relays on/off.
@@ -39,12 +39,16 @@ The project is organized into a workspace with several crates:
     *   A simple command-line tool for sending basic on/off commands to a relay device for testing purposes.
 *   `apps/enable/`:
     *   A command-line utility to send control messages to the logger service on the devices (e.g., to enable/disable serial logging, store logs, or restart the device).
+*   `temperature-react-ui/`:
+    *   Contains the source code for the React/Tailwind frontend application.
+    *   The build output from this directory (the `dist` folder) is served by the `temperature-server`.
 
 ## Getting Started
 
 ### Prerequisites
 
 *   **Rust Toolchain:** Ensure you have Rust installed (visit [rust-lang.org](https://www.rust-lang.org/tools/install)).
+*   **Node.js and Yarn (or npm):** Required for building and developing the React frontend. Visit [nodejs.org](https://nodejs.org/) to install Node.js (which includes npm). Yarn can be installed via npm: `npm install --global yarn`.
 *   **Protocol Buffer Compiler (`protoc`):** The `protocol` crate's `build.rs` script uses `protobuf-codegen` which in turn requires the `protoc` compiler. Installation instructions can be found on the [Protocol Buffers documentation site](https://grpc.io/docs/protoc-installation/).
 
     It's often provided by a package named `protobuf-compiler`. For example:
@@ -53,7 +57,9 @@ The project is organized into a workspace with several crates:
 
 ### Building the Project
 
-To build all applications in the workspace:
+#### Building the Backend Applications (Rust)
+
+To build all backend applications in the workspace:
 
 ```bash
 cargo build --all
@@ -64,6 +70,17 @@ To build a specific application, for example, the server:
 ```bash
 cargo build -p temperature-server
 ```
+
+#### Building the Frontend (React UI)
+
+Before running the main server with the new UI, or after making changes to the UI, you need to build the React application:
+
+```bash
+cd temperature-react-ui
+yarn install  # Or: npm install - if you prefer npm and have a package-lock.json
+yarn build
+```
+This will create a `dist` directory inside `temperature-react-ui/` containing the static assets for the frontend.
 
 ### Testing the Project
 
@@ -86,10 +103,12 @@ cargo test -p temperature-protocol
 To run the main temperature control server:
 
 ```bash
-cargo run -p temperature-server
+cargo run -p temperature-server # or cargo run --bin temperature-server
 ```
 
-The server will start listening for UDP messages on `0.0.0.0:4000` and the web interface will be available at `http://localhost:8080`.
+The server will start listening for UDP messages on `0.0.0.0:4000`.
+The web interface, built from the `temperature-react-ui` project, will be served from its `dist` directory and available at `http://localhost:8080`.
+**Note:** Ensure you have built the frontend application (`cd temperature-react-ui && yarn build`) before running the server if you want to use the web interface.
 
 #### Device Logger
 
@@ -100,6 +119,16 @@ cargo run -p temperature-logger
 ```
 
 By default, it attempts to bind to `192.168.0.1:6001`. This might need adjustment in `apps/logger/src/main.rs` depending on your network configuration and where the devices are sending logs.
+
+#### Frontend Development Server (React UI)
+
+For developing the React UI with live reloading, you can run the Vite development server:
+
+```bash
+cd temperature-react-ui
+yarn dev
+```
+This will typically start the frontend on a different port (e.g., `http://localhost:5173` - check your terminal output). API requests to `/api` will be proxied to the Rust backend running on `http://localhost:8080` (as configured in `temperature-react-ui/vite.config.ts`). This allows you to develop the UI independently while still communicating with the live backend.
 
 ## Usage
 
