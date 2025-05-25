@@ -1,16 +1,18 @@
 use axum::{
     routing::{get, post},
     Router,
-    response::{Html, IntoResponse},
-    extract::{State, Json, Query},
-    http::{StatusCode, Uri}, // Added Uri
+    response::{Html, IntoResponse, Response},
+    extract::{ws::{WebSocket, WebSocketUpgrade, Message as WsMessage}, State, Json, Query},
+    http::{StatusCode, Uri},
 };
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tower_http::compression::CompressionLayer;
-use tokio::sync::RwLock; // Keep tokio RwLock
+use tokio::sync::{RwLock, mpsc};
+use futures_util::{stream::{StreamExt, SplitStream, SplitSink}, sink::SinkExt};
 use serde::{Serialize, Deserialize};
 use temperature_protocol::relay::set_relay;
+use crate::WsTx; // Corrected import path again
 use chrono::Local;
 use std::path::PathBuf; // Added PathBuf
 use tokio::fs; // Added tokio::fs for reading index.html
@@ -19,6 +21,7 @@ use tokio::fs; // Added tokio::fs for reading index.html
 #[derive(Clone)]
 pub struct WebState {
     pub server_state: Arc<RwLock<ServerState>>,
+    pub ws_connections: Arc<RwLock<Vec<WsTx>>>,
 }
 
 #[derive(Default, Clone, Serialize)]
@@ -73,8 +76,8 @@ pub struct OverrideTemperatureRequest {
 }
 
 
-pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
-    let app_state = WebState { server_state };
+pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>, ws_connections: Arc<RwLock<Vec<WsTx>>>) {
+    let app_state = WebState { server_state, ws_connections };
 
     // Path to the React app's dist directory - adjust if server runs from different location
     let react_dist_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -104,9 +107,10 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
         .route("/api/relay", post(control_relay))
         .route("/api/disable", post(disable_heater))
         .route("/api/override_temperature", post(override_temperature_handler))
+        .route("/ws", get(ws_handler))
         // Mount the SPA router (serving static files and index.html)
         // IMPORTANT: This should generally be the last thing if it has a broad fallback
-        .merge(spa_router) 
+        .merge(spa_router)
         .layer(CompressionLayer::new())
         .with_state(app_state);
 
@@ -116,6 +120,88 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
+
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<WebState>,
+) -> Response {
+    println!("WebSocket connection upgrade requested");
+    ws.on_upgrade(move |socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: WebState) {
+    println!("WebSocket connection established");
+    let (ws_sender, ws_receiver) = socket.split();
+    let (tx, rx) = mpsc::channel(100); // Channel for this specific connection
+
+    // Add this connection's sender to the shared list
+    state.ws_connections.write().await.push(tx.clone());
+    println!("WebSocket TX channel added to shared list. Total connections: {}", state.ws_connections.read().await.len());
+
+
+    let mut rx_task = tokio::spawn(send_state_updates(rx, ws_sender));
+    let mut tx_task = tokio::spawn(receive_ws_messages(ws_receiver, tx.clone(), state.clone())); // Pass a clone of tx for removal later
+
+    // Keep the connection alive until one of the tasks finishes
+    tokio::select! {
+        _ = (&mut rx_task) => {
+            println!("RX task finished.");
+            tx_task.abort(); // Abort the other task
+        },
+        _ = (&mut tx_task) => {
+            println!("TX task finished.");
+            rx_task.abort(); // Abort the other task
+        },
+    }
+
+    println!("WebSocket connection closing. Removing TX channel from shared list.");
+    // Remove the sender from the list
+    let mut conns = state.ws_connections.write().await;
+    if let Some(pos) = conns.iter().position(|x| x.same_channel(&tx)) {
+        conns.remove(pos);
+        println!("WebSocket TX channel removed. Total connections: {}", conns.len());
+    } else {
+        println!("WebSocket TX channel not found in shared list for removal.");
+    }
+}
+
+async fn send_state_updates(
+    mut rx: mpsc::Receiver<WsMessage>,
+    mut ws_sender: SplitSink<WebSocket, WsMessage>,
+) -> Result<(), axum::Error> {
+    while let Some(message) = rx.recv().await {
+        if ws_sender.send(message).await.is_err() {
+            println!("Failed to send message to WebSocket client, client disconnected?");
+            break; // Client disconnected
+        }
+    }
+    Ok(())
+}
+
+async fn receive_ws_messages(
+    mut ws_receiver: SplitStream<WebSocket>,
+    _tx: WsTx, // Keep for potential future use (e.g., client sending commands) or removal logic
+    _state: WebState, // Keep for potential future use
+) -> Result<(), axum::Error> {
+    while let Some(msg_result) = ws_receiver.next().await {
+        match msg_result {
+            Ok(msg) => {
+                if let WsMessage::Close(_) = msg {
+                    println!("Client sent close message.");
+                    break; // Exit loop on close message
+                }
+                // Process other messages if needed
+                println!("Received message from client (currently ignored): {:?}", msg);
+            }
+            Err(e) => {
+                println!("Error receiving message from WebSocket client: {}", e);
+                break; // Error receiving message
+            }
+        }
+    }
+    Ok(())
+}
+
 
 // Serves the index.html for the React SPA
 async fn serve_react_app_index(uri: Uri) -> impl IntoResponse {

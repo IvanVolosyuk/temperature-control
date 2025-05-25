@@ -1,12 +1,17 @@
+/* eslint-disable @typescript-eslint/no-use-before-define */
+/* eslint-disable no-console */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import RoomCard from './components/RoomCard';
 import { getStatus, controlRelay, disableHeater, overrideTemperature } from './services/api';
-import { RoomState } from './types';
+import { connectWebSocket, WebSocketCallbacks } from './services/websocket';
+import { ServerStatusResponse, RoomState, TemperaturePoint } from './types';
 import './index.css';
 
-const POLLING_INTERVAL = 1000; // 1 seconds for polling
+// Constants
 const ROOM_ID_BEDROOM = 'bedroom';
 const ROOM_ID_KIDS = 'kids_bedroom';
+const RECONNECT_DELAY_MS = 5000; // 5 seconds
+const MAX_HISTORY_POINTS = 2 * 60 * 60; // Approx 2 hours of data at 1s interval, adjust as needed
 
 function App() {
   const [bedroomData, setBedroomData] = useState<RoomState | null>(null);
@@ -14,147 +19,243 @@ function App() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    // Check if user has a saved preference
     const saved = localStorage.getItem('darkMode');
-    if (saved !== null) {
-      return saved === 'true';
-    }
-    // If no saved preference, use system preference
+    if (saved !== null) return saved === 'true';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+  const [isConnected, setIsConnected] = useState<boolean>(false);
 
-  const lastUpdateTimestampRef = useRef<{ bedroom: number | null; kids_bedroom: number | null }>({
-    bedroom: null,
-    kids_bedroom: null,
-  });
-  const intervalIdRef = useRef<number | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const lastKnownServerTimestampRef = useRef<number | null>(null);
+  const isManuallyDisconnectedRef = useRef<boolean>(false);
+  const reconnectTimeoutRef = useRef<number | null>(null);
 
-  // Update dark mode class on HTML element
+
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-    // Save preference
     localStorage.setItem('darkMode', isDarkMode.toString());
   }, [isDarkMode]);
 
-  const fetchStatus = useCallback(async (isInitialLoad = false) => {
-    if (!isInitialLoad) {
-      // For subsequent polls, don't set global isLoading unless necessary
-      // Individual components can show stale data or specific loading indicators
-    } else {
-      setIsLoading(true);
-    }
-    setError(null);
-
-    try {
-      // Use the latest timestamp from either room for the last_update query parameter
-      const latestTimestampForQuery = Math.max(
-        lastUpdateTimestampRef.current.bedroom || 0,
-        lastUpdateTimestampRef.current.kids_bedroom || 0
-      );
-      const queryTimestamp = latestTimestampForQuery > 0 ? latestTimestampForQuery : undefined;
-
-      const data = await getStatus(queryTimestamp);
-
-      // Merge new history data with existing, avoid full replacement if not needed
-      setBedroomData(prev => ({
-        ...(prev || data.bedroom), // use new data for static fields or if no previous data
-        ...data.bedroom, // override with latest static fields
-        temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.bedroom.temperature_history)
-      }));
-
-      setKidsRoomData(prev => ({
-        ...(prev || data.kids_bedroom),
-        ...data.kids_bedroom,
-        temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.kids_bedroom.temperature_history)
-      }));
-
-      // Update last update timestamps from the new data
-      if (data.bedroom.temperature_history.length > 0) {
-        lastUpdateTimestampRef.current.bedroom = data.bedroom.temperature_history[data.bedroom.temperature_history.length - 1].timestamp;
-      }
-      if (data.kids_bedroom.temperature_history.length > 0) {
-        lastUpdateTimestampRef.current.kids_bedroom = data.kids_bedroom.temperature_history[data.kids_bedroom.temperature_history.length - 1].timestamp;
-      }
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred.');
-      // Keep stale data on error for polling, clear for initial load?
-      // if (isInitialLoad) {
-      //   setBedroomData(null);
-      //   setKidsRoomData(null);
-      // }
-    } finally {
-      if (isInitialLoad) {
-        setIsLoading(false);
-      }
-    }
-  }, []);
-
-  // Helper to merge temperature history arrays
-  const mergeTemperatureHistory = (existing: RoomState['temperature_history'] = [], incoming: RoomState['temperature_history'] = []) => {
+  const mergeTemperatureHistory = useCallback((
+    existing: TemperaturePoint[] = [],
+    incoming: TemperaturePoint[] = []
+  ): TemperaturePoint[] => {
     if (!incoming || incoming.length === 0) return existing;
-    if (!existing || existing.length === 0) return incoming;
+    if (!existing || existing.length === 0) return incoming.slice(-MAX_HISTORY_POINTS);
 
     const combined = [...existing];
-    const lastExistingTimestamp = existing[existing.length - 1]?.timestamp || 0;
+    const existingTimestamps = new Set(existing.map(p => p.timestamp));
 
     for (const point of incoming) {
-      if (point.timestamp > lastExistingTimestamp) {
+      if (!existingTimestamps.has(point.timestamp)) {
         combined.push(point);
       }
     }
-    // Optional: Limit history size if needed
-    // const MAX_HISTORY_POINTS = 1000; // Example
-    // return combined.slice(-MAX_HISTORY_POINTS);
-    return combined;
-  };
+    // Sort by timestamp just in case there are out-of-order points from merging
+    combined.sort((a, b) => a.timestamp - b.timestamp);
+    return combined.slice(-MAX_HISTORY_POINTS);
+  }, []);
 
 
+  const updateLocalStateWithFullServerResponse = useCallback((data: ServerStatusResponse) => {
+    setBedroomData(prev => ({
+      ...(prev || data.bedroom),
+      ...data.bedroom,
+      temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.bedroom.temperature_history),
+    }));
+    setKidsRoomData(prev => ({
+      ...(prev || data.kids_bedroom),
+      ...data.kids_bedroom,
+      temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.kids_bedroom.temperature_history),
+    }));
+
+    const bedroomLatest = data.bedroom.temperature_history.slice(-1)[0]?.timestamp;
+    const kidsLatest = data.kids_bedroom.temperature_history.slice(-1)[0]?.timestamp;
+    const latestTimestamp = Math.max(bedroomLatest || 0, kidsLatest || 0);
+
+    if (latestTimestamp > (lastKnownServerTimestampRef.current || 0)) {
+      lastKnownServerTimestampRef.current = latestTimestamp;
+    }
+    setIsLoading(false); // Ensure loading is false after updates
+  }, [mergeTemperatureHistory]);
+
+
+  const connectWs = useCallback(() => {
+    if (wsRef.current || isManuallyDisconnectedRef.current) {
+      console.log('WebSocket connection attempt skipped (already connected/connecting or manually disconnected).');
+      return;
+    }
+    console.log('Attempting WebSocket connection...');
+    setIsLoading(true); // Indicate connection attempt
+
+    const wsUrl = `ws://${window.location.host}/ws`;
+    const callbacks: WebSocketCallbacks = {
+      onOpen: () => {
+        setIsConnected(true);
+        setError(null);
+        setIsLoading(false);
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        console.log('WebSocket connection established.');
+      },
+      onMessage: (data) => {
+        // console.log('WebSocket message received:', data);
+        updateLocalStateWithFullServerResponse(data);
+      },
+      onClose: (event) => {
+        setIsConnected(false);
+        wsRef.current = null;
+        console.log('WebSocket connection closed:', event.code, event.reason);
+        if (!isManuallyDisconnectedRef.current && event.code !== 1000) { // 1000 is normal closure
+          setError(`WebSocket disconnected unexpectedly (code: ${event.code}). Attempting to reconnect...`);
+          if (!reconnectTimeoutRef.current) {
+            // eslint-disable-next-line @typescript-eslint/no-use-before-define
+            reconnectTimeoutRef.current = window.setTimeout(performReconnect, RECONNECT_DELAY_MS);
+          }
+        } else if (isManuallyDisconnectedRef.current) {
+          console.log('WebSocket closed manually.');
+        }
+      },
+      onError: (event) => {
+        setError('WebSocket error. See console for details.');
+        setIsConnected(false);
+        setIsLoading(false); // Stop loading on error
+        console.error('WebSocket error event:', event);
+        // Consider attempting reconnect here as well, depending on desired behavior
+        if (!isManuallyDisconnectedRef.current && !reconnectTimeoutRef.current) {
+            // eslint-disable-next-line @typescript-eslint/no-use-before-define
+            reconnectTimeoutRef.current = window.setTimeout(performReconnect, RECONNECT_DELAY_MS);
+        }
+      },
+    };
+    wsRef.current = connectWebSocket(wsUrl, callbacks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateLocalStateWithFullServerResponse]); // performReconnect is defined later, ESLint might warn
+
+
+  const disconnectWs = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    isManuallyDisconnectedRef.current = true;
+    if (wsRef.current) {
+      console.log('Manually disconnecting WebSocket...');
+      wsRef.current.close(1000, 'Manual disconnection'); // 1000 is a normal closure
+    }
+    setIsConnected(false); // Assume disconnection immediately
+  }, []);
+
+  const performReconnect = useCallback(async () => {
+    if (wsRef.current || isManuallyDisconnectedRef.current) {
+      console.log('Reconnect skipped (already connected/connecting or manually disconnected).');
+      return;
+    }
+    console.log('Performing reconnect...');
+    setIsLoading(true);
+    setError('Connection lost. Attempting to reconnect...');
+    isManuallyDisconnectedRef.current = false; // Reset manual flag for reconnection attempts
+
+    try {
+      console.log('Fetching catch-up data before reconnecting WebSocket...');
+      const catchUpData = await getStatus(lastKnownServerTimestampRef.current || undefined);
+      updateLocalStateWithFullServerResponse(catchUpData);
+      console.log('Catch-up data processed.');
+    } catch (err) {
+      console.error('Failed to fetch catch-up data:', err);
+      setError(`Failed to fetch catch-up data: ${err instanceof Error ? err.message : 'Unknown error'}. Still attempting WebSocket reconnect.`);
+      // Don't necessarily stop the WebSocket connection attempt here
+    }
+
+    connectWs(); // Attempt to reconnect WebSocket
+  }, [connectWs, updateLocalStateWithFullServerResponse]);
+
+
+  // Initial load and WebSocket connection
   useEffect(() => {
-    fetchStatus(true); // Initial fetch
+    const initialize = async () => {
+      console.log('Initializing application...');
+      setIsLoading(true);
+      setError(null);
+      isManuallyDisconnectedRef.current = false; // Ensure it's false on initial load
 
-    const startPolling = () => {
-      if (intervalIdRef.current === null) {
-        intervalIdRef.current = window.setInterval(() => fetchStatus(false), POLLING_INTERVAL);
+      try {
+        console.log('Fetching initial full status...');
+        const initialData = await getStatus(); // Get all data initially
+        updateLocalStateWithFullServerResponse(initialData);
+        console.log('Initial data processed.');
+        if (!isManuallyDisconnectedRef.current) { // Check if disconnect was called during init
+          connectWs();
+        }
+      } catch (err) {
+        console.error('Initialization failed:', err);
+        setError(`Initialization failed: ${err instanceof Error ? err.message : 'Unknown error'}. Retrying connection...`);
+        // Still try to connect WebSocket even if initial HTTP fetch fails,
+        // as the server might become available.
+        if (!isManuallyDisconnectedRef.current) {
+            // Schedule a reconnect attempt, which includes connectWs
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = window.setTimeout(performReconnect, RECONNECT_DELAY_MS);
+        }
       }
     };
 
-    const stopPolling = () => {
-      if (intervalIdRef.current !== null) {
-        clearInterval(intervalIdRef.current);
-        intervalIdRef.current = null;
-      }
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        stopPolling();
-      } else {
-        fetchStatus(false); // Fetch immediately when tab becomes visible
-        startPolling();
-      }
-    };
-
-    startPolling();
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    initialize();
 
     return () => {
-      stopPolling();
-      document.removeEventListener('visibilitychange', handleVisibilityChange); // Cleanup on unmount
+      console.log('Cleaning up App component (unmount or re-render).');
+      disconnectWs();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
     };
-  }, [fetchStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectWs, disconnectWs, performReconnect, updateLocalStateWithFullServerResponse]); // Dependencies for initial setup and cleanup
+
+
+  // Handle document visibility changes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Document hidden, disconnecting WebSocket temporarily.');
+        disconnectWs(); // Disconnect when tab is not visible
+      } else {
+        console.log('Document visible, attempting to reconnect WebSocket.');
+        // Reset manual flag if user is actively bringing tab to foreground
+        isManuallyDisconnectedRef.current = false;
+        performReconnect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [disconnectWs, performReconnect]);
+
 
   const handleApiAction = async (action: () => Promise<any>) => {
-    setIsLoading(true); // Indicate loading for the action
+    setIsLoading(true);
     try {
       await action();
-      await fetchStatus(false); // Refresh data after action
+      // After a successful action, fetch the latest state to ensure UI consistency.
+      // This is important if the WebSocket connection is down or if the action
+      // itself doesn't trigger an immediate broadcast of the specific change.
+      console.log('API action successful, fetching updated status...');
+      const updatedData = await getStatus(lastKnownServerTimestampRef.current || undefined);
+      updateLocalStateWithFullServerResponse(updatedData);
+      console.log('Status updated after API action.');
     } catch (err) {
+      console.error('API action failed:', err);
       setError(err instanceof Error ? err.message : 'Failed to perform action.');
+      // Optionally, trigger a reconnect or full status refresh here if appropriate
     } finally {
       setIsLoading(false);
     }
@@ -172,7 +273,8 @@ function App() {
     return handleApiAction(() => overrideTemperature(roomApiName, temperature));
   };
 
-  if (isLoading && !bedroomData && !kidsRoomData) {
+
+  if (isLoading && !bedroomData && !kidsRoomData && !error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
         Loading initial data...
@@ -229,6 +331,14 @@ function App() {
           isDarkMode={isDarkMode}
         />
       </main>
+      <footer className="mt-8 text-center text-sm text-gray-600 dark:text-gray-400">
+        WebSocket: {isConnected ? (
+          <span className="text-green-500 dark:text-green-400">Connected</span>
+        ) : (
+          <span className="text-red-500 dark:text-red-400">Disconnected</span>
+        )}
+        {isLoading && !isConnected && <span className="ml-2">Attempting to connect...</span>}
+      </footer>
     </div>
   );
 }

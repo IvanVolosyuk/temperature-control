@@ -9,8 +9,11 @@ use std::fs::{File, rename};
 use std::io::{Write, stdout};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
+use axum::extract::ws::Message as WsMessage;
 use crate::schedule::INTERPOLATE_INTERVALS;
+// Make WsTx available to web.rs by defining it here and making it public
+pub type WsTx = mpsc::Sender<WsMessage>;
 use crate::web::{ServerState, create_web_server, TemperaturePoint};
 
 // These are from the temperature_protocol crate
@@ -130,6 +133,7 @@ struct Server {
 
     controls: Vec<Box<dyn Control>>,
     web_state: Arc<RwLock<ServerState>>,
+    ws_connections: Arc<RwLock<Vec<WsTx>>>, // WsTx is now defined above
 }
 
 #[derive(PartialEq, Debug)]
@@ -154,6 +158,7 @@ impl Server {
             relay_confirmations: HashMap::new(),
             controls,
             web_state: Arc::new(RwLock::new(ServerState::default())),
+            ws_connections: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
@@ -216,7 +221,16 @@ impl Server {
         return Ok(());
     }
 
-    async fn update_web_state(&self) {
+    async fn broadcast_updates(&self, state_json: String) {
+        let ws_connections_read_lock = self.ws_connections.read().await;
+        for tx in ws_connections_read_lock.iter() {
+            if tx.send(WsMessage::Text(state_json.clone().into())).await.is_err() { // Added .into()
+                // Remove broken connections on next write lock
+            }
+        }
+    }
+
+    async fn update_and_broadcast_web_state(&self) {
         let mut state = self.web_state.write().await;
 
         // Update bedroom state
@@ -256,6 +270,11 @@ impl Server {
         state.kids_bedroom.relay_state = self.last_relay_on_status.get(KIDS_RELAY_EXPECTED_IP)
             .copied()
             .unwrap_or(false);
+
+        // Serialize and broadcast the updated state (implementation of this part depends on your JSON serialization setup)
+        if let Ok(state_json) = serde_json::to_string(&*state) {
+            self.broadcast_updates(state_json).await;
+        }
     }
 
     async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
@@ -288,7 +307,7 @@ impl Server {
             if header_status == PrintHeaderStatus::HasStatusUpdate { "\n" } else { "\r" }
         );
         stdout().flush()?;
-        self.update_web_state().await;
+        self.update_and_broadcast_web_state().await;
         Ok(())
     }
 
@@ -501,7 +520,7 @@ impl Server {
 
         println!(); // End the line for sensor report
         stdout().flush()?;
-        self.update_web_state().await;
+        self.update_and_broadcast_web_state().await;
         Ok(())
     }
 
@@ -589,10 +608,11 @@ async fn main() -> Result<()> {
     // Initialize the server state
     let mut server = Server::new();
     let web_state = server.web_state.clone();
+    let ws_connections = server.ws_connections.clone();
 
     // Start the web server in a separate task
     tokio::spawn(async move {
-        create_web_server(web_state).await;
+        create_web_server(web_state, ws_connections).await;
     });
 
     // Start the main loop using FragmentCombiner

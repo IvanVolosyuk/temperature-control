@@ -9,6 +9,11 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+      },
+      '/ws': { // New rule for WebSocket
+        target: 'http://localhost:8080', // Target the HTTP address, Vite handles WS upgrade
+        changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
       }
     }
   }
