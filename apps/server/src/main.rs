@@ -223,7 +223,15 @@ impl Server {
         state.bedroom.sensor_available = self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
         state.bedroom.current_temp = self.last_temp_deci.get(&0).copied().unwrap_or(0.0);
-        state.bedroom.target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[0], Local::now());
+        // Calculate scheduled target_temp first
+        let mut bedroom_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[0], Local::now());
+        // Check for override
+        if let (Some(override_until_ts), Some(override_temp_val)) = (state.bedroom.override_until, state.bedroom.override_temperature) {
+            if override_until_ts > Local::now().timestamp() {
+                bedroom_target_temp = override_temp_val;
+            }
+        }
+        state.bedroom.target_temp = bedroom_target_temp;
         state.bedroom.relay_available = self.last_message_timestamp.get(BEDROOM_RELAY_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
         state.bedroom.relay_state = self.last_relay_on_status.get(BEDROOM_RELAY_EXPECTED_IP)
@@ -234,7 +242,15 @@ impl Server {
         state.kids_bedroom.sensor_available = self.last_message_timestamp.get(KIDS_SENSOR_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
         state.kids_bedroom.current_temp = self.last_temp_deci.get(&2).copied().unwrap_or(0.0);
-        state.kids_bedroom.target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[2], Local::now());
+        // Calculate scheduled target_temp first
+        let mut kids_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[2], Local::now());
+        // Check for override
+        if let (Some(override_until_ts), Some(override_temp_val)) = (state.kids_bedroom.override_until, state.kids_bedroom.override_temperature) {
+            if override_until_ts > Local::now().timestamp() {
+                kids_target_temp = override_temp_val;
+            }
+        }
+        state.kids_bedroom.target_temp = kids_target_temp;
         state.kids_bedroom.relay_available = self.last_message_timestamp.get(KIDS_RELAY_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
         state.kids_bedroom.relay_state = self.last_relay_on_status.get(KIDS_RELAY_EXPECTED_IP)
@@ -336,12 +352,46 @@ impl Server {
 
         let mut target_temp = temp; // Default target to current temp if not controlled
         let mut heater_on = false;
+        let mut applied_override = false;
+
+        // Check for temperature override
+        // Read override status early and release the lock
+        let mut room_override_temp = None;
+        let mut room_override_until = None;
+
+        if device_id == 0 || device_id == 2 { // Only check for rooms we manage overrides for
+            let web_state_lock = self.web_state.read().await;
+            let room_state_for_override = if device_id == 0 {
+                &web_state_lock.bedroom
+            } else {
+                &web_state_lock.kids_bedroom
+            };
+
+            if let (Some(override_until_ts), Some(override_val)) = (room_state_for_override.override_until, room_state_for_override.override_temperature) {
+                if override_until_ts > current_timestamp {
+                    room_override_temp = Some(override_val);
+                    room_override_until = Some(override_until_ts); // Not strictly needed here, but good for consistency
+                }
+            }
+            // Drop the read lock as soon as possible
+            drop(web_state_lock);
+        }
 
         if (device_id as usize) < INTERPOLATE_INTERVALS.len() { // Check if ID is within manageable range
-            target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
+            if let Some(override_temp_val) = room_override_temp {
+                target_temp = override_temp_val;
+                print!("[SET {:.1}C] ", target_temp);
+                applied_override = true;
+            } else {
+                target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
+            }
 
             temp += CORRECTION[device_id as usize];
-            print!("{:.1} (target {:.1}) ", temp, target_temp);
+            if !applied_override { // Avoid double printing target if override was applied
+                print!("{:.1} (target {:.1}) ", temp, target_temp);
+            } else {
+                 print!("{:.1} ", temp); // Just print current temp if override already printed target
+            }
             self.last_temp_deci.insert(device_id, temp);
 
             let is_disabled = self.is_heater_disabled(device_id, current_timestamp).await;

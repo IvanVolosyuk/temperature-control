@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import RoomCard from './components/RoomCard';
-import { getStatus, controlRelay, disableHeater } from './services/api';
+import { getStatus, controlRelay, disableHeater, overrideTemperature } from './services/api';
 import { RoomState } from './types';
 import './index.css';
 
@@ -168,6 +168,10 @@ function App() {
     return handleApiAction(() => disableHeater(roomApiName, disable));
   };
 
+  const handleOverrideTemperature = (roomApiName: string, temperature: number | null) => {
+    return handleApiAction(() => overrideTemperature(roomApiName, temperature));
+  };
+
   if (isLoading && !bedroomData && !kidsRoomData) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
@@ -210,6 +214,7 @@ function App() {
           roomData={bedroomData}
           onControlRelay={handleControlRelay}
           onDisableHeater={handleDisableHeater}
+          onOverrideTemperature={handleOverrideTemperature}
           isLoading={isLoading && !bedroomData}
           isDarkMode={isDarkMode}
         />
@@ -219,6 +224,7 @@ function App() {
           roomData={kidsRoomData}
           onControlRelay={handleControlRelay}
           onDisableHeater={handleDisableHeater}
+          onOverrideTemperature={handleOverrideTemperature}
           isLoading={isLoading && !kidsRoomData}
           isDarkMode={isDarkMode}
         />

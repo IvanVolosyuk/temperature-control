@@ -16,6 +16,8 @@ export interface RoomState {
   relay_state: boolean; // true if ON, false if OFF
   temperature_history: TemperaturePoint[];
   disabled_until: number | null; // Unix timestamp in seconds, or null
+  override_temperature?: number | null;
+  override_until?: number | null;
 }
 
 export interface ServerStatusResponse {

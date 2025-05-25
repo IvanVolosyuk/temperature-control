@@ -14,6 +14,34 @@ export async function getStatus(lastUpdate?: number): Promise<ServerStatusRespon
   return response.json();
 }
 
+// Interface for the override temperature request payload
+interface OverrideTemperaturePayload {
+  room: string;
+  temperature: number | null; // null to clear override
+}
+
+export async function overrideTemperature(roomName: string, temperature: number | null): Promise<ApiResponse> {
+  const payload: OverrideTemperaturePayload = { room: roomName, temperature };
+  const response = await fetch(`${API_BASE_URL}/override_temperature`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    try {
+      const errData = await response.json();
+      throw new Error(errData.error || `Failed to set override: ${response.statusText}`);
+    } catch (e) {
+      // If parsing JSON fails or it's not a JSON error from backend
+      if (e instanceof Error) {
+        throw e; // rethrow if it's already an Error
+      }
+      throw new Error(`Failed to set override: ${response.statusText}`);
+    }
+  }
+  return response.json();
+}
+
 export async function controlRelay(roomName: string, state: boolean): Promise<ApiResponse> {
   const payload: RelayControlRequest = { room: roomName, state };
   const response = await fetch(`${API_BASE_URL}/relay`, {

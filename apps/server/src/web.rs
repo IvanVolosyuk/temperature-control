@@ -36,6 +36,8 @@ pub struct RoomState {
     pub relay_state: bool,
     pub temperature_history: Vec<TemperaturePoint>,
     pub disabled_until: Option<i64>, // Timestamp when disabled state expires
+    pub override_temperature: Option<f64>,
+    pub override_until: Option<i64>,
 }
 
 #[derive(Default, Clone, Serialize)]
@@ -62,6 +64,12 @@ pub struct StatusQuery {
 pub struct DisableHeaterRequest {
     room: String,
     disable: bool, // true to disable, false to restore
+}
+
+#[derive(Deserialize)]
+pub struct OverrideTemperatureRequest {
+    room: String,
+    temperature: Option<f64>,
 }
 
 
@@ -95,6 +103,7 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>) {
         .route("/api/status", get(get_status))
         .route("/api/relay", post(control_relay))
         .route("/api/disable", post(disable_heater))
+        .route("/api/override_temperature", post(override_temperature_handler))
         // Mount the SPA router (serving static files and index.html)
         // IMPORTANT: This should generally be the last thing if it has a broad fallback
         .merge(spa_router) 
@@ -184,6 +193,8 @@ async fn disable_heater(
 
     if request.disable {
         room_state_arc.disabled_until = Some(Local::now().timestamp() + 2 * 3600);
+        room_state_arc.override_temperature = None; // Clear override
+        room_state_arc.override_until = None; // Clear override
         if room_state_arc.relay_state { // if heater is on, turn it off
             let relay_hostname = match request.room.as_str() {
                 "bedroom" => "esp8266-relay0.local",
@@ -198,5 +209,28 @@ async fn disable_heater(
     } else {
         room_state_arc.disabled_until = None;
     }
+    axum::Json(serde_json::json!({ "success": true }))
+}
+
+async fn override_temperature_handler(
+    State(state): State<WebState>,
+    Json(request): Json<OverrideTemperatureRequest>,
+) -> axum::Json<serde_json::Value> {
+    let mut server_state = state.server_state.write().await;
+    let room_state_arc = match request.room.as_str() {
+        "bedroom" => &mut server_state.bedroom,
+        "kids_bedroom" => &mut server_state.kids_bedroom,
+        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
+    };
+
+    if let Some(temp_val) = request.temperature {
+        room_state_arc.override_temperature = Some(temp_val);
+        room_state_arc.override_until = Some(Local::now().timestamp() + 2 * 3600);
+        room_state_arc.disabled_until = None; // Clear disabled state
+    } else {
+        room_state_arc.override_temperature = None;
+        room_state_arc.override_until = None;
+    }
+
     axum::Json(serde_json::json!({ "success": true }))
 }
