@@ -376,7 +376,6 @@ impl Server {
         // Check for temperature override
         // Read override status early and release the lock
         let mut room_override_temp = None;
-        let mut room_override_until = None;
 
         if device_id == 0 || device_id == 2 { // Only check for rooms we manage overrides for
             let web_state_lock = self.web_state.read().await;
@@ -389,7 +388,6 @@ impl Server {
             if let (Some(override_until_ts), Some(override_val)) = (room_state_for_override.override_until, room_state_for_override.override_temperature) {
                 if override_until_ts > current_timestamp {
                     room_override_temp = Some(override_val);
-                    room_override_until = Some(override_until_ts); // Not strictly needed here, but good for consistency
                 }
             }
             // Drop the read lock as soon as possible
