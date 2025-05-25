@@ -8,11 +8,12 @@ protobuf = "*"
 anyhow = { version = "*", features = ["backtrace"] }
 chrono = "*"
 temperature-protocol = { path = "../../protocol" }
-axum = { version = "*", features = ["macros"] }
+axum = { version = "*", features = ["ws", "macros"] }
 tokio = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["fs", "compression-full"] }
 tower = "*"
 futures = "*"
+futures-util = { version = "0.3", features = ["sink"] }
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 
