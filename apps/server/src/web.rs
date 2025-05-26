@@ -158,18 +158,6 @@ pub async fn create_web_server(
             "/favicon-512.png",
             tower_http::services::ServeFile::new(react_dist_path.join("favicon-512.png")),
         )
-        .nest_service(
-            "/power.svg",
-            tower_http::services::ServeFile::new(react_dist_path.join("power.svg")),
-        )
-        .nest_service(
-            "/thermometer.svg",
-            tower_http::services::ServeFile::new(react_dist_path.join("thermometer.svg")),
-        )
-        .nest_service(
-            "/vite.svg",
-            tower_http::services::ServeFile::new(react_dist_path.join("vite.svg")),
-        ) // Vite's default icon
         .fallback(get(serve_react_app_index)); // Fallback to serving index.html for SPA routing
 
     let app = Router::new()

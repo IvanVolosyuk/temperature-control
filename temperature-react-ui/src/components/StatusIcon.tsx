@@ -48,4 +48,4 @@ const StatusIcon: React.FC<StatusIconProps> = ({ type, className = '' }) => {
   return null;
 };
 
-export default StatusIcon; 
+export default StatusIcon;
