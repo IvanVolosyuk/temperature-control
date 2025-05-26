@@ -8,10 +8,8 @@ import { ServerStatusResponse, RoomStateWithId, TemperaturePoint } from './types
 import './index.css';
 
 // Constants
-// const ROOM_ID_BEDROOM = 'bedroom'; // No longer used directly in App.tsx for rendering
-// const ROOM_ID_KIDS = 'kids_bedroom'; // No longer used directly in App.tsx for rendering
 const RECONNECT_DELAY_MS = 5000; // 5 seconds
-const MAX_HISTORY_POINTS = 2 * 60 * 60; // Approx 2 hours of data at 1s interval, adjust as needed
+const MAX_HISTORY_POINTS = 48 * 60 * 60; // Approx 48 hours of data at 1s interval, adjust as needed
 
 function App() {
   const [roomsData, setRoomsData] = useState<RoomStateWithId[] | null>(null); // New state for rooms
@@ -132,7 +130,9 @@ function App() {
         setIsConnected(false);
         wsRef.current = null;
         console.log('WebSocket connection closed:', event.code, event.reason);
-        if (!isManuallyDisconnectedRef.current && event.code !== 1000) { // 1000 is normal closure
+        // 1000 is normal closure
+        // 1006 is manual closure initiated by us on focus lost
+        if (!isManuallyDisconnectedRef.current && event.code !== 1000 && event.code !== 1006) {
           setError(`WebSocket disconnected unexpectedly (code: ${event.code}). Attempting to reconnect...`);
           if (!reconnectTimeoutRef.current) {
             // eslint-disable-next-line @typescript-eslint/no-use-before-define
@@ -172,14 +172,16 @@ function App() {
     setIsConnected(false); // Assume disconnection immediately
   }, []);
 
-  const performReconnect = useCallback(async () => {
+  const performReconnect = useCallback(async (options?: { isTabReconnection?: boolean }) => {
     if (wsRef.current || isManuallyDisconnectedRef.current) {
       console.log('Reconnect skipped (already connected/connecting or manually disconnected).');
       return;
     }
     console.log('Performing reconnect...');
     setIsLoading(true);
-    setError('Connection lost. Attempting to reconnect...');
+    if (!options?.isTabReconnection) {
+      setError('Connection lost. Attempting to reconnect...');
+    }
     isManuallyDisconnectedRef.current = false; // Reset manual flag for reconnection attempts
 
     try {
@@ -250,7 +252,7 @@ function App() {
         console.log('Document visible, attempting to reconnect WebSocket.');
         // Reset manual flag if user is actively bringing tab to foreground
         isManuallyDisconnectedRef.current = false;
-        performReconnect();
+        performReconnect({ isTabReconnection: true });
       }
     };
 
