@@ -30,12 +30,46 @@ pub struct WebState {
     pub ws_connections: Arc<RwLock<Vec<WsTx>>>,
 }
 
-#[derive(Default, Clone, Serialize)]
+#[derive(Clone, Serialize)] // Removed Default here, will implement manually
 pub struct ServerState {
-    pub bedroom: RoomState,
-    pub kids_bedroom: RoomState,
+    pub rooms: Vec<RoomStateWithId>,
 }
 
+impl Default for ServerState {
+    fn default() -> Self {
+        ServerState {
+            rooms: vec![
+                RoomStateWithId {
+                    id: 0,
+                    name: "Bedroom".to_string(),
+                    ..Default::default()
+                },
+                RoomStateWithId {
+                    id: 2,
+                    name: "Kids Bedroom".to_string(),
+                    ..Default::default()
+                },
+            ],
+        }
+    }
+}
+
+#[derive(Default, Clone, Serialize)]
+pub struct RoomStateWithId {
+    pub id: u32,
+    pub name: String,
+    pub sensor_available: bool,
+    pub current_temp: f64,
+    pub target_temp: f64,
+    pub relay_available: bool,
+    pub relay_state: bool,
+    pub temperature_history: Vec<TemperaturePoint>,
+    pub disabled_until: Option<i64>, // Timestamp when disabled state expires
+    pub override_temperature: Option<f64>,
+    pub override_until: Option<i64>,
+}
+
+// RoomState remains as a component of RoomStateWithId, ensure it has Default
 #[derive(Default, Clone, Serialize)]
 pub struct RoomState {
     pub sensor_available: bool,
@@ -60,7 +94,7 @@ pub struct TemperaturePoint {
 
 #[derive(Deserialize)]
 pub struct RelayControlRequest {
-    room: String,
+    room_id: u32,
     state: bool,
 }
 
@@ -71,13 +105,13 @@ pub struct StatusQuery {
 
 #[derive(Deserialize)]
 pub struct DisableHeaterRequest {
-    room: String,
+    room_id: u32,
     disable: bool, // true to disable, false to restore
 }
 
 #[derive(Deserialize)]
 pub struct OverrideTemperatureRequest {
-    room: String,
+    room_id: u32,
     temperature: Option<f64>,
 }
 
@@ -275,21 +309,16 @@ async fn get_status(
     let server_state = state.server_state.read().await;
     let mut response_state = (*server_state).clone();
 
-    if let Some(last_update) = query.last_update {
-        response_state.bedroom.temperature_history = server_state
-            .bedroom
-            .temperature_history
-            .iter()
-            .filter(|point| point.timestamp > last_update)
-            .cloned()
-            .collect();
-        response_state.kids_bedroom.temperature_history = server_state
-            .kids_bedroom
-            .temperature_history
-            .iter()
-            .filter(|point| point.timestamp > last_update)
-            .cloned()
-            .collect();
+    if let Some(last_update_ts) = query.last_update {
+        for room_state in response_state.rooms.iter_mut() {
+            // Original history for this room before filtering
+            let original_history = std::mem::take(&mut room_state.temperature_history);
+            // Filter and update
+            room_state.temperature_history = original_history
+                .into_iter()
+                .filter(|point| point.timestamp > last_update_ts)
+                .collect();
+        }
     }
     axum::Json(response_state)
 }
@@ -298,19 +327,20 @@ async fn control_relay(
     State(state): State<WebState>,
     Json(request): Json<RelayControlRequest>,
 ) -> axum::Json<serde_json::Value> {
-    let relay_hostname = match request.room.as_str() {
-        "bedroom" => "esp8266-relay0.local",
-        "kids_bedroom" => "esp8266-relay2.local",
-        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
+    let relay_hostname = match request.room_id {
+        0 => "esp8266-relay0.local", // Bedroom
+        2 => "esp8266-relay2.local", // Kids Bedroom
+        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" })),
     };
 
     match set_relay(relay_hostname, request.state, 0) {
         Ok(_) => {
-            let mut server_state = state.server_state.write().await;
-            match request.room.as_str() {
-                "bedroom" => server_state.bedroom.relay_state = request.state,
-                "kids_bedroom" => server_state.kids_bedroom.relay_state = request.state,
-                _ => {}
+            let mut server_state_lock = state.server_state.write().await;
+            if let Some(room) = server_state_lock.rooms.iter_mut().find(|r| r.id == request.room_id) {
+                room.relay_state = request.state;
+            } else {
+                // This case should ideally not happen if room_id validation is correct
+                return axum::Json(serde_json::json!({ "success": false, "error": "Room ID not found after relay operation" }));
             }
             axum::Json(serde_json::json!({ "success": true }))
         }
@@ -322,11 +352,12 @@ async fn disable_heater(
     State(state): State<WebState>,
     Json(request): Json<DisableHeaterRequest>,
 ) -> axum::Json<serde_json::Value> {
-    let mut server_state = state.server_state.write().await;
-    let room_state_arc = match request.room.as_str() {
-        "bedroom" => &mut server_state.bedroom,
-        "kids_bedroom" => &mut server_state.kids_bedroom,
-        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
+    let mut server_state_lock = state.server_state.write().await;
+    
+    let room_id_to_find = request.room_id;
+    let room_state_arc = match server_state_lock.rooms.iter_mut().find(|r| r.id == room_id_to_find) {
+        Some(room) => room,
+        None => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" })),
     };
 
     if request.disable {
@@ -335,10 +366,10 @@ async fn disable_heater(
         room_state_arc.override_until = None; // Clear override
         if room_state_arc.relay_state {
             // if heater is on, turn it off
-            let relay_hostname = match request.room.as_str() {
-                "bedroom" => "esp8266-relay0.local",
-                "kids_bedroom" => "esp8266-relay2.local",
-                _ => unreachable!(),
+            let relay_hostname = match room_id_to_find {
+                0 => "esp8266-relay0.local", // Bedroom
+                2 => "esp8266-relay2.local", // Kids Bedroom
+                _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID for relay" })), // Should not happen if find was successful
             };
             if let Err(e) = set_relay(relay_hostname, false, 0) {
                 return axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }));
@@ -355,11 +386,12 @@ async fn override_temperature_handler(
     State(state): State<WebState>,
     Json(request): Json<OverrideTemperatureRequest>,
 ) -> axum::Json<serde_json::Value> {
-    let mut server_state = state.server_state.write().await;
-    let room_state_arc = match request.room.as_str() {
-        "bedroom" => &mut server_state.bedroom,
-        "kids_bedroom" => &mut server_state.kids_bedroom,
-        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
+    let mut server_state_lock = state.server_state.write().await;
+
+    let room_id_to_find = request.room_id;
+    let room_state_arc = match server_state_lock.rooms.iter_mut().find(|r| r.id == room_id_to_find) {
+        Some(room) => room,
+        None => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" })),
     };
 
     if let Some(temp_val) = request.temperature {

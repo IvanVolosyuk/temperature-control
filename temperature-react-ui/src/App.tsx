@@ -4,18 +4,17 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import RoomCard from './components/RoomCard';
 import { getStatus, controlRelay, disableHeater, overrideTemperature } from './services/api';
 import { connectWebSocket, WebSocketCallbacks } from './services/websocket';
-import { ServerStatusResponse, RoomState, TemperaturePoint } from './types';
+import { ServerStatusResponse, RoomStateWithId, TemperaturePoint } from './types'; // Updated RoomState to RoomStateWithId
 import './index.css';
 
 // Constants
-const ROOM_ID_BEDROOM = 'bedroom';
-const ROOM_ID_KIDS = 'kids_bedroom';
+// const ROOM_ID_BEDROOM = 'bedroom'; // No longer used directly in App.tsx for rendering
+// const ROOM_ID_KIDS = 'kids_bedroom'; // No longer used directly in App.tsx for rendering
 const RECONNECT_DELAY_MS = 5000; // 5 seconds
 const MAX_HISTORY_POINTS = 2 * 60 * 60; // Approx 2 hours of data at 1s interval, adjust as needed
 
 function App() {
-  const [bedroomData, setBedroomData] = useState<RoomState | null>(null);
-  const [kidsRoomData, setKidsRoomData] = useState<RoomState | null>(null);
+  const [roomsData, setRoomsData] = useState<RoomStateWithId[] | null>(null); // New state for rooms
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -62,23 +61,44 @@ function App() {
 
 
   const updateLocalStateWithFullServerResponse = useCallback((data: ServerStatusResponse) => {
-    setBedroomData(prev => ({
-      ...(prev || data.bedroom),
-      ...data.bedroom,
-      temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.bedroom.temperature_history),
-    }));
-    setKidsRoomData(prev => ({
-      ...(prev || data.kids_bedroom),
-      ...data.kids_bedroom,
-      temperature_history: mergeTemperatureHistory(prev?.temperature_history, data.kids_bedroom.temperature_history),
-    }));
+    setRoomsData(prevRoomsData => {
+      const newRoomsDataMap = new Map<number, RoomStateWithId>();
 
-    const bedroomLatest = data.bedroom.temperature_history.slice(-1)[0]?.timestamp;
-    const kidsLatest = data.kids_bedroom.temperature_history.slice(-1)[0]?.timestamp;
-    const latestTimestamp = Math.max(bedroomLatest || 0, kidsLatest || 0);
+      // Add existing rooms to map
+      if (prevRoomsData) {
+        for (const room of prevRoomsData) {
+          newRoomsDataMap.set(room.id, room);
+        }
+      }
 
-    if (latestTimestamp > (lastKnownServerTimestampRef.current || 0)) {
-      lastKnownServerTimestampRef.current = latestTimestamp;
+      // Update with rooms from server
+      for (const roomFromServer of data.rooms) {
+        const existingRoom = newRoomsDataMap.get(roomFromServer.id);
+        const mergedHistory = mergeTemperatureHistory(
+          existingRoom?.temperature_history,
+          roomFromServer.temperature_history
+        );
+        newRoomsDataMap.set(roomFromServer.id, {
+          ...(existingRoom || {} as RoomStateWithId), // Spread existing or empty object, ensure type
+          ...roomFromServer,
+          temperature_history: mergedHistory,
+        });
+      }
+      return Array.from(newRoomsDataMap.values()).sort((a, b) => a.id - b.id); // Sort by ID for consistent order
+    });
+
+    let maxTimestamp = 0;
+    for (const room of data.rooms) {
+      if (room.temperature_history && room.temperature_history.length > 0) {
+        const roomMaxTimestamp = room.temperature_history.reduce((max, p) => Math.max(max, p.timestamp), 0);
+        if (roomMaxTimestamp > maxTimestamp) {
+          maxTimestamp = roomMaxTimestamp;
+        }
+      }
+    }
+
+    if (maxTimestamp > (lastKnownServerTimestampRef.current || 0)) {
+      lastKnownServerTimestampRef.current = maxTimestamp;
     }
     setIsLoading(false); // Ensure loading is false after updates
   }, [mergeTemperatureHistory]);
@@ -261,20 +281,20 @@ function App() {
     }
   };
 
-  const handleControlRelay = (roomApiName: string, state: boolean) => {
-    return handleApiAction(() => controlRelay(roomApiName, state));
+  const handleControlRelay = (roomId: number, state: boolean) => {
+    return handleApiAction(() => controlRelay(roomId, state));
   };
 
-  const handleDisableHeater = (roomApiName: string, disable: boolean) => {
-    return handleApiAction(() => disableHeater(roomApiName, disable));
+  const handleDisableHeater = (roomId: number, disable: boolean) => {
+    return handleApiAction(() => disableHeater(roomId, disable));
   };
 
-  const handleOverrideTemperature = (roomApiName: string, temperature: number | null) => {
-    return handleApiAction(() => overrideTemperature(roomApiName, temperature));
+  const handleOverrideTemperature = (roomId: number, temperature: number | null) => {
+    return handleApiAction(() => overrideTemperature(roomId, temperature));
   };
 
 
-  if (isLoading && !bedroomData && !kidsRoomData && !error) {
+  if (isLoading && !roomsData && !error) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200">
         Loading initial data...
@@ -310,26 +330,17 @@ function App() {
         </div>
       )}
       <main className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <RoomCard
-          roomName="Bedroom"
-          roomApiName={ROOM_ID_BEDROOM}
-          roomData={bedroomData}
-          onControlRelay={handleControlRelay}
-          onDisableHeater={handleDisableHeater}
-          onOverrideTemperature={handleOverrideTemperature}
-          isLoading={isLoading && !bedroomData}
-          isDarkMode={isDarkMode}
-        />
-        <RoomCard
-          roomName="Kids Bedroom"
-          roomApiName={ROOM_ID_KIDS}
-          roomData={kidsRoomData}
-          onControlRelay={handleControlRelay}
-          onDisableHeater={handleDisableHeater}
-          onOverrideTemperature={handleOverrideTemperature}
-          isLoading={isLoading && !kidsRoomData}
-          isDarkMode={isDarkMode}
-        />
+        {roomsData && roomsData.map(room => (
+          <RoomCard
+            key={room.id} // Important: add a key for list rendering
+            room={room} // Pass the whole room object
+            onControlRelay={handleControlRelay} // Assumes RoomCard calls with (roomId, state)
+            onDisableHeater={handleDisableHeater} // Assumes RoomCard calls with (roomId, disable)
+            onOverrideTemperature={handleOverrideTemperature} // Assumes RoomCard calls with (roomId, temp)
+            isLoading={isLoading && !roomsData} // Simplified isLoading for now
+            isDarkMode={isDarkMode}
+          />
+        ))}
       </main>
       <footer className="mt-8 text-center text-sm text-gray-600 dark:text-gray-400">
         WebSocket: {isConnected ? (

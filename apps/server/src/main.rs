@@ -199,13 +199,10 @@ impl Server {
         is_disabled: bool,
     ) -> Result<()> {
         //Update temperature history in web state
-        let mut web_state = self.web_state.write().await;
-        let room_state = if device_id == 0 {
-            &mut web_state.bedroom
-        } else if device_id == 2 {
-            &mut web_state.kids_bedroom
-        } else {
-            return Ok(());
+        let mut web_state_lock = self.web_state.write().await;
+        let room_state = match web_state_lock.rooms.iter_mut().find(|r| r.id == device_id) {
+            Some(room) => room,
+            None => return Ok(()), // Or handle error if a room with this ID is expected
         };
 
         // Add new temperature point
@@ -230,39 +227,21 @@ impl Server {
         let mut state_for_broadcast = (*state_guard).clone(); // Clone the state to modify it
 
         // Prune temperature history based on updated_room_id_for_history
-        match updated_room_id_for_history {
-            Some(0) => {
-                // Bedroom updated
-                if let Some(last_point) = state_for_broadcast
-                    .bedroom
-                    .temperature_history
-                    .last()
-                    .cloned()
-                {
-                    state_for_broadcast.bedroom.temperature_history = vec![last_point];
+        if let Some(updated_id) = updated_room_id_for_history {
+            for room_state in state_for_broadcast.rooms.iter_mut() {
+                if room_state.id == updated_id {
+                    if let Some(last_point) = room_state.temperature_history.last().cloned() {
+                        room_state.temperature_history = vec![last_point];
+                    } else {
+                        room_state.temperature_history = Vec::new();
+                    }
                 } else {
-                    state_for_broadcast.bedroom.temperature_history = Vec::new();
+                    room_state.temperature_history = Vec::new();
                 }
-                state_for_broadcast.kids_bedroom.temperature_history = Vec::new();
             }
-            Some(2) => {
-                // Kids Bedroom updated
-                if let Some(last_point) = state_for_broadcast
-                    .kids_bedroom
-                    .temperature_history
-                    .last()
-                    .cloned()
-                {
-                    state_for_broadcast.kids_bedroom.temperature_history = vec![last_point];
-                } else {
-                    state_for_broadcast.kids_bedroom.temperature_history = Vec::new();
-                }
-                state_for_broadcast.bedroom.temperature_history = Vec::new();
-            }
-            _ => {
-                // No specific room updated for history point, or other ID
-                state_for_broadcast.bedroom.temperature_history = Vec::new();
-                state_for_broadcast.kids_bedroom.temperature_history = Vec::new();
+        } else { // No specific room updated for history, clear all
+            for room_state in state_for_broadcast.rooms.iter_mut() {
+                room_state.temperature_history = Vec::new();
             }
         }
         // Ensure other room fields (current_temp, target_temp, etc.) are still from the original state_guard (they are, due to clone)
@@ -299,63 +278,79 @@ impl Server {
 
     async fn update_and_broadcast_web_state(&self, updated_device_id_for_history: Option<u32>) {
         let mut state_write_guard = self.web_state.write().await; // Acquire write lock to update state
-
-        // Update bedroom state
-        state_write_guard.bedroom.sensor_available = self
-            .last_message_timestamp
-            .get(BEDROOM_SENSOR_EXPECTED_IP)
-            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
-        state_write_guard.bedroom.current_temp =
-            self.last_temp_deci.get(&0).copied().unwrap_or(0.0);
-
         let now = Local::now(); // Define now here for reuse
-        let mut bedroom_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[0], now);
-        if let (Some(override_until_ts), Some(override_temp_val)) = (
-            state_write_guard.bedroom.override_until,
-            state_write_guard.bedroom.override_temperature,
-        ) {
-            if override_until_ts > now.timestamp() {
-                bedroom_target_temp = override_temp_val;
+
+        for room in state_write_guard.rooms.iter_mut() {
+            let (sensor_ip_str, relay_ip_str) = match room.id {
+                0 => (Some(BEDROOM_SENSOR_EXPECTED_IP), Some(BEDROOM_RELAY_EXPECTED_IP)),
+                2 => (Some(KIDS_SENSOR_EXPECTED_IP), Some(KIDS_RELAY_EXPECTED_IP)),
+                _ => (None, None), // No specific IP checks for other rooms
+            };
+
+            // Sensor availability and current temperature
+            if let Some(ip_s) = sensor_ip_str {
+                room.sensor_available = self
+                    .last_message_timestamp
+                    .get(ip_s)
+                    .map_or(false, |&ts| now.timestamp() - ts < 180);
+            } else {
+                // For rooms without a specific sensor IP, check if we have any recent temperature data for this room.id
+                // and if any sensor reported recently (general sensor activity).
+                room.sensor_available = self.last_temp_deci.contains_key(&room.id) &&
+                                      self.last_message_timestamp.values().any(|&ts| now.timestamp() - ts < 180);
+            }
+            room.current_temp = self.last_temp_deci.get(&room.id).copied().unwrap_or(0.0);
+
+            // Target temperature from schedule and override
+            if (room.id as usize) < INTERPOLATE_INTERVALS.len() {
+                let mut target_temp_val = interpolate_fn_rust(INTERPOLATE_INTERVALS[room.id as usize], now);
+                if let (Some(override_until_ts), Some(override_temp_val)) = (
+                    room.override_until,
+                    room.override_temperature,
+                ) {
+                    if override_until_ts > now.timestamp() {
+                        target_temp_val = override_temp_val;
+                    }
+                }
+                room.target_temp = target_temp_val;
+            } else {
+                // Default target temp if no schedule for this room ID
+                room.target_temp = room.current_temp; // Or a sensible default like 20.0
+            }
+
+            // Relay availability and state
+            if let Some(ip_r) = relay_ip_str {
+                room.relay_available = self
+                    .last_message_timestamp
+                    .get(ip_r)
+                    .map_or(false, |&ts| now.timestamp() - ts < 180);
+                room.relay_state = self
+                    .last_relay_on_status
+                    .get(ip_r) // last_relay_on_status is keyed by relay's source IP
+                    .copied()
+                    .unwrap_or(false);
+            } else {
+                // For rooms without a specific relay IP, try to infer from RELAYS and relay_confirmations
+                if let Some(hostname_str) = RELAYS.get(room.id as usize) {
+                    // Check if any relay reported recently (general check)
+                    // Renamed ts to ts_val to emphasize it's a value and removed dereferencing.
+                    let any_relay_active = self.last_message_timestamp.values().any(|&ts_val| { 
+                        self.last_relay_on_status.keys().any(|k| self.last_message_timestamp.get(k).map_or(false, |&lts| lts == ts_val)) && now.timestamp() - ts_val < 180
+                    });
+                    
+                    if let Some(confirmation_state) = self.relay_confirmations.get(*hostname_str) {
+                        room.relay_available = any_relay_active; // Simplified: if its hostname is in confirmations & any relay active
+                        room.relay_state = confirmation_state.confirmed_on_state;
+                    } else {
+                        room.relay_available = false;
+                        room.relay_state = false;
+                    }
+                } else {
+                    room.relay_available = false;
+                    room.relay_state = false;
+                }
             }
         }
-        state_write_guard.bedroom.target_temp = bedroom_target_temp;
-        state_write_guard.bedroom.relay_available = self
-            .last_message_timestamp
-            .get(BEDROOM_RELAY_EXPECTED_IP)
-            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
-        state_write_guard.bedroom.relay_state = self
-            .last_relay_on_status
-            .get(BEDROOM_RELAY_EXPECTED_IP)
-            .copied()
-            .unwrap_or(false);
-
-        // Update kids bedroom state
-        state_write_guard.kids_bedroom.sensor_available = self
-            .last_message_timestamp
-            .get(KIDS_SENSOR_EXPECTED_IP)
-            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
-        state_write_guard.kids_bedroom.current_temp =
-            self.last_temp_deci.get(&2).copied().unwrap_or(0.0);
-
-        let mut kids_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[2], now);
-        if let (Some(override_until_ts), Some(override_temp_val)) = (
-            state_write_guard.kids_bedroom.override_until,
-            state_write_guard.kids_bedroom.override_temperature,
-        ) {
-            if override_until_ts > now.timestamp() {
-                kids_target_temp = override_temp_val;
-            }
-        }
-        state_write_guard.kids_bedroom.target_temp = kids_target_temp;
-        state_write_guard.kids_bedroom.relay_available = self
-            .last_message_timestamp
-            .get(KIDS_RELAY_EXPECTED_IP)
-            .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
-        state_write_guard.kids_bedroom.relay_state = self
-            .last_relay_on_status
-            .get(KIDS_RELAY_EXPECTED_IP)
-            .copied()
-            .unwrap_or(false);
 
         drop(state_write_guard); // Release write lock before broadcasting
 
@@ -409,13 +404,10 @@ impl Server {
 
     async fn is_heater_disabled(&self, device_id: u32, current_timestamp: i64) -> bool {
         // Check if heater is disabled
-        let web_state = self.web_state.read().await;
-        let room_state = if device_id == 0 {
-            &web_state.bedroom
-        } else if device_id == 2 {
-            &web_state.kids_bedroom
-        } else {
-            &web_state.bedroom // Default to bedroom, won't be used
+        let web_state_lock = self.web_state.read().await;
+        let room_state = match web_state_lock.rooms.iter().find(|r| r.id == device_id) {
+            Some(room) => room,
+            None => return false, // If room doesn't exist, it's not disabled
         };
 
         return room_state
@@ -479,26 +471,21 @@ impl Server {
         // Read override status early and release the lock
         let mut room_override_temp = None;
 
-        if device_id == 0 || device_id == 2 {
-            // Only check for rooms we manage overrides for
-            let web_state_lock = self.web_state.read().await;
-            let room_state_for_override = if device_id == 0 {
-                &web_state_lock.bedroom
-            } else {
-                &web_state_lock.kids_bedroom
-            };
-
+        // Check for temperature override using the new structure
+        let web_state_lock = self.web_state.read().await;
+        if let Some(room_for_override) = web_state_lock.rooms.iter().find(|r| r.id == device_id) {
             if let (Some(override_until_ts), Some(override_val)) = (
-                room_state_for_override.override_until,
-                room_state_for_override.override_temperature,
+                room_for_override.override_until,
+                room_for_override.override_temperature,
             ) {
                 if override_until_ts > current_timestamp {
                     room_override_temp = Some(override_val);
                 }
             }
-            // Drop the read lock as soon as possible
-            drop(web_state_lock);
         }
+        // Drop the read lock as soon as possible
+        drop(web_state_lock);
+
 
         if (device_id as usize) < INTERPOLATE_INTERVALS.len() {
             // Check if ID is within manageable range

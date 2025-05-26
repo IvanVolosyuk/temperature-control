@@ -20,21 +20,28 @@ export interface RoomState {
   override_until?: number | null;
 }
 
+export interface RoomStateWithId extends RoomState {
+  id: number;
+  name: string;
+}
+
 export interface ServerStatusResponse {
-  bedroom: RoomState;
-  kids_bedroom: RoomState;
+  rooms: RoomStateWithId[];
 }
 
 // For POST request bodies
 export interface RelayControlRequest {
-  room: string; // "bedroom" or "kids_bedroom"
+  room_id: number; 
   state: boolean; // true for ON, false for OFF
 }
 
 export interface DisableHeaterRequest {
-  room: string; // "bedroom" or "kids_bedroom"
+  room_id: number;
   disable: boolean; // true to disable, false to restore
 }
+
+// Note: OverrideTemperatureRequest is not explicitly defined here.
+// It will be handled in api.ts if defined inline there.
 
 // Generic API response for POSTs
 export interface ApiResponse {

@@ -1,47 +1,52 @@
 import React from 'react';
 import TemperatureChart from './TemperatureChart';
-import { RoomState } from '../types'; // Assuming types.ts is in src
+import { RoomStateWithId } from '../types'; // Updated to RoomStateWithId
 import StatusIcon from './StatusIcon';
 
 type RoomCardProps = {
-  roomName: string;
-  roomApiName: string;
-  roomData: RoomState | null;
-  onControlRelay: (room: string, state: boolean) => Promise<void>;
-  onDisableHeater: (room: string, disable: boolean) => Promise<void>;
-  onOverrideTemperature: (roomApiName: string, temperature: number | null) => Promise<void>;
+  room: RoomStateWithId; // Changed from roomName, roomApiName, roomData
+  onControlRelay: (roomId: number, state: boolean) => Promise<void>;
+  onDisableHeater: (roomId: number, disable: boolean) => Promise<void>;
+  onOverrideTemperature: (roomId: number, temperature: number | null) => Promise<void>;
   isLoading: boolean;
   isDarkMode: boolean;
 };
 
 const RoomCard: React.FC<RoomCardProps> = ({
-  roomName,
-  roomApiName,
-  roomData,
+  room, // Changed from roomName, roomApiName, roomData
   onControlRelay,
   onDisableHeater,
   onOverrideTemperature,
   isLoading,
   isDarkMode,
 }) => {
-  const isHeaterDisabled = Boolean(roomData?.disabled_until && Date.now() < roomData.disabled_until * 1000);
-  const isOverrideActive = Boolean(roomData?.override_until && Date.now() < roomData.override_until * 1000 && roomData.override_temperature !== null && roomData.override_temperature !== undefined);
-  const currentOverrideTemp = roomData?.override_temperature;
+  const isHeaterDisabled = Boolean(room.disabled_until && Date.now() < room.disabled_until * 1000);
+  const isOverrideActive = Boolean(room.override_until && Date.now() < room.override_until * 1000 && room.override_temperature !== null && room.override_temperature !== undefined);
+  const currentOverrideTemp = room.override_temperature;
 
   const handleRelayToggle = () => {
-    if (!roomData || !roomData.relay_available) return;
-    onControlRelay(roomApiName, !roomData.relay_state);
+    if (!room.relay_available) return;
+    onControlRelay(room.id, !room.relay_state);
   };
 
   const handleHeaterControl = (disable: boolean) => {
-    if (!roomData || !roomData.relay_available) return;
-    onDisableHeater(roomApiName, disable);
+    if (!room.relay_available) return;
+    onDisableHeater(room.id, disable);
   };
 
-  if (isLoading && !roomData) {
+  // isLoading prop is handled by App.tsx, if room is not available, this component won't be rendered.
+  // However, App.tsx passes a general isLoading flag. We can use it for individual card loading state if needed,
+  // or rely on App.tsx's global loading. For now, let's assume if !room, it's loading or an issue.
+  // The `isLoading && !roomData` check from before becomes just `isLoading` if `room` is guaranteed.
+  // App.tsx's current logic for RoomCard: `isLoading={isLoading && !roomsData}`. This means this individual
+  // card doesn't need to check for !room for loading, just the `isLoading` prop passed from App.
+  // If `room` itself could be null while not loading, then `if (isLoading || !room)` would be needed.
+  // Given App.tsx maps over `roomsData`, `room` should always be defined here.
+  
+  if (isLoading) { // Simplified loading check as room object should be present
     return (
       <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg p-6 animate-pulse">
-        <h2 className="text-2xl font-semibold mb-4 text-gray-700 dark:text-gray-300">{roomName}</h2>
+        <h2 className="text-2xl font-semibold mb-4 text-gray-700 dark:text-gray-300">{room.name || 'Loading...'}</h2>
         <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-4"></div>
         <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-2"></div>
         <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-4"></div>
@@ -55,7 +60,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700">
-      <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-4">{roomName}</h2>
+      <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-4">{room.name}</h2>
 
       {/* Temperature Sensor Section */}
       <div className="mb-4">
@@ -63,17 +68,17 @@ const RoomCard: React.FC<RoomCardProps> = ({
         <div className="flex items-center">
           <StatusIcon type="thermometer" className="text-gray-400 dark:text-gray-500" />
           <span className={`text-lg ${
-            roomData?.sensor_available
+            room.sensor_available
               ? 'text-green-500 dark:text-green-400'
               : 'text-red-500 dark:text-red-400'
           }`}>
-            {roomData?.sensor_available ? 'Available' : 'Unavailable'}
+            {room.sensor_available ? 'Available' : 'Unavailable'}
           </span>
         </div>
-        {roomData?.sensor_available && (
+        {room.sensor_available && (
           <div className="mt-2 text-lg text-gray-600 dark:text-gray-300">
-            <p>Current: <span className="font-medium">{roomData.current_temp?.toFixed(1) ?? 'N/A'}</span>°C</p>
-            <p>Target: <span className="font-medium">{roomData.target_temp?.toFixed(1) ?? 'N/A'}</span>°C</p>
+            <p>Current: <span className="font-medium">{room.current_temp?.toFixed(1) ?? 'N/A'}</span>°C</p>
+            <p>Target: <span className="font-medium">{room.target_temp?.toFixed(1) ?? 'N/A'}</span>°C</p>
           </div>
         )}
       </div>
@@ -84,17 +89,17 @@ const RoomCard: React.FC<RoomCardProps> = ({
         <div className="flex items-center mb-2">
           <StatusIcon type="power" className="text-gray-400 dark:text-gray-500" />
           <span className={`text-lg ${
-            !roomData?.relay_available
+            !room.relay_available
               ? 'text-red-500 dark:text-red-400'
               : isHeaterDisabled
                 ? 'text-yellow-500 dark:text-yellow-400'
                 : 'text-green-500 dark:text-green-400'
           }`}>
-            {!roomData?.relay_available
+            {!room.relay_available
               ? 'Unavailable'
               : isHeaterDisabled
                 ? 'Current: DISABLED'
-                : `Current: ${roomData.relay_state ? 'ON' : 'OFF'}`}
+                : `Current: ${room.relay_state ? 'ON' : 'OFF'}`}
           </span>
         </div>
 
@@ -102,36 +107,36 @@ const RoomCard: React.FC<RoomCardProps> = ({
           <div className="flex flex-col sm:flex-row gap-2"> {/* Row 1: Existing Buttons */}
             <button
               onClick={handleRelayToggle}
-              disabled={!roomData?.relay_available || isHeaterDisabled}
+              disabled={!room.relay_available || isHeaterDisabled}
               className={`px-6 py-3 text-lg rounded transition-colors duration-200 ${
-                !roomData?.relay_available || isHeaterDisabled
+                !room.relay_available || isHeaterDisabled
                   ? 'bg-gray-400 dark:bg-gray-600 text-gray-200 cursor-not-allowed'
-                  : roomData?.relay_state
+                  : room.relay_state
                     ? 'bg-red-600 hover:bg-red-700 text-white'
                     : 'bg-blue-600 hover:bg-blue-700 text-white'
               }`}
             >
-              {!roomData?.relay_available
+              {!room.relay_available
                 ? 'Toggle (Unavailable)'
                 : isHeaterDisabled
                   ? 'Heater Disabled'
-                  : roomData?.relay_state
+                  : room.relay_state
                     ? 'Turn Off'
                     : 'Turn On'}
             </button>
 
             <button
               onClick={() => handleHeaterControl(!isHeaterDisabled)}
-              disabled={!roomData?.relay_available || isOverrideActive}
+              disabled={!room.relay_available || isOverrideActive}
               className={`px-6 py-3 text-lg rounded transition-colors duration-200 ${
-                !roomData?.relay_available || isOverrideActive
+                !room.relay_available || isOverrideActive
                   ? 'bg-gray-400 dark:bg-gray-600 text-gray-200 cursor-not-allowed'
                   : isHeaterDisabled
                     ? 'bg-green-600 hover:bg-green-700 text-white'
                     : 'bg-yellow-600 hover:bg-yellow-700 text-white'
               }`}
             >
-              {!roomData?.relay_available
+              {!room.relay_available
                 ? 'Disable (Unavailable)'
                 : isOverrideActive
                   ? 'Override Active'
@@ -142,7 +147,7 @@ const RoomCard: React.FC<RoomCardProps> = ({
           </div>
 
           {/* NEW: Temperature Override Controls */}
-          {roomData?.relay_available && (
+          {room.relay_available && (
             <div className="mt-2 border-t border-gray-200 dark:border-gray-700 pt-2">
               <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">
                 Set Target Override (2 Hours):
@@ -151,12 +156,12 @@ const RoomCard: React.FC<RoomCardProps> = ({
                 {[18, 19, 20, 21, 22, 23].map((temp) => (
                   <button
                     key={temp}
-                    onClick={() => onOverrideTemperature(roomApiName, temp)}
-                    disabled={!roomData?.relay_available || isHeaterDisabled || (isOverrideActive && currentOverrideTemp === temp)}
+                    onClick={() => onOverrideTemperature(room.id, temp)}
+                    disabled={!room.relay_available || isHeaterDisabled || (isOverrideActive && currentOverrideTemp === temp)}
                     className={`px-2 py-1 text-xs rounded font-medium transition-colors duration-150 ${
                       (isOverrideActive && currentOverrideTemp === temp)
                         ? 'bg-green-600 text-white ring-2 ring-green-300'
-                        : (!roomData?.relay_available || isHeaterDisabled)
+                        : (!room.relay_available || isHeaterDisabled)
                           ? 'bg-gray-300 dark:bg-gray-500 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                           : 'bg-sky-500 hover:bg-sky-600 text-white dark:bg-sky-600 dark:hover:bg-sky-700'
                     }`}
@@ -166,10 +171,10 @@ const RoomCard: React.FC<RoomCardProps> = ({
                   </button>
                 ))}
                 <button
-                  onClick={() => onOverrideTemperature(roomApiName, null)}
-                  disabled={!roomData?.relay_available || !isOverrideActive || isHeaterDisabled}
+                  onClick={() => onOverrideTemperature(room.id, null)}
+                  disabled={!room.relay_available || !isOverrideActive || isHeaterDisabled}
                   className={`px-2 py-1 text-xs rounded font-medium transition-colors duration-150 ${
-                    (!roomData?.relay_available || !isOverrideActive || isHeaterDisabled)
+                    (!room.relay_available || !isOverrideActive || isHeaterDisabled)
                       ? 'bg-gray-300 dark:bg-gray-500 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                       : 'bg-orange-500 hover:bg-orange-600 text-white dark:bg-orange-600 dark:hover:bg-orange-700'
                   }`}
@@ -182,16 +187,16 @@ const RoomCard: React.FC<RoomCardProps> = ({
           )}
           
           {/* Display active override status */}
-          {isOverrideActive && roomData?.override_until && typeof roomData.override_temperature === 'number' && (
+          {isOverrideActive && room.override_until && typeof room.override_temperature === 'number' && (
             <div className="mt-2 text-sm text-sky-600 dark:text-sky-400">
-              Override active: Target {roomData.override_temperature.toFixed(1)}°C. Ends in {Math.max(0, Math.round((roomData.override_until * 1000 - Date.now()) / 60000))} min.
+              Override active: Target {room.override_temperature.toFixed(1)}°C. Ends in {Math.max(0, Math.round((room.override_until * 1000 - Date.now()) / 60000))} min.
             </div>
           )}
 
           {/* Display heater disabled status (existing) */}
-          {isHeaterDisabled && roomData?.disabled_until && (
+          {isHeaterDisabled && room.disabled_until && (
             <div className="mt-2 text-sm text-yellow-600 dark:text-yellow-400"> {/* Adjusted text size to sm */}
-              Automatic restore in: {Math.max(0, Math.round((roomData.disabled_until * 1000 - Date.now()) / 60000))} minutes
+              Automatic restore in: {Math.max(0, Math.round((room.disabled_until * 1000 - Date.now()) / 60000))} minutes
             </div>
           )}
         </div>
@@ -201,8 +206,8 @@ const RoomCard: React.FC<RoomCardProps> = ({
       <div className="mt-6 pt-4 pb-2 border-t border-gray-200 dark:border-gray-700">
         <div className="h-[300px] w-full">
           <TemperatureChart
-            roomName={roomName}
-            roomData={roomData}
+            roomName={room.name}
+            roomData={room} 
             isDarkMode={isDarkMode}
           />
         </div>
