@@ -30,7 +30,7 @@ pub struct WebState {
     pub ws_connections: Arc<RwLock<Vec<WsTx>>>,
 }
 
-#[derive(Clone, Serialize)] // Removed Default here, will implement manually
+#[derive(Clone, Serialize, Deserialize)] // Removed Default here, will implement manually
 pub struct ServerState {
     pub rooms: Vec<RoomStateWithId>,
 }
@@ -54,7 +54,7 @@ impl Default for ServerState {
     }
 }
 
-#[derive(Default, Clone, Serialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct RoomStateWithId {
     pub id: u32,
     pub name: String,
@@ -83,7 +83,7 @@ pub struct RoomState {
     pub override_until: Option<i64>,
 }
 
-#[derive(Default, Clone, Serialize)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct TemperaturePoint {
     pub timestamp: i64,
     pub temperature: f64,

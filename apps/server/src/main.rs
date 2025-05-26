@@ -6,11 +6,11 @@ use crate::schedule::INTERPOLATE_INTERVALS;
 use anyhow::Result;
 use axum::extract::ws::Message as WsMessage;
 use chrono::{DateTime, Local, Timelike};
-use std::collections::HashMap;
 use std::fs::{rename, File};
 use std::io::{stdout, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::{collections::HashMap, path::Path};
 use tokio::sync::{mpsc, RwLock};
 // Make WsTx available to web.rs by defining it here and making it public
 pub type WsTx = mpsc::Sender<WsMessage>;
@@ -40,6 +40,9 @@ const CORRECTION: [f64; 3] = [
 
 // Path for Netdata files
 const NETDATA_PATH_PREFIX: &str = "/var/lib/temperature";
+
+// Path for saving server state
+const SERVER_STATE_FILE: &str = "server_state.json";
 
 fn linear_rust(val_start: f64, val_end: f64, x_start: f64, x_end: f64, x_target: f64) -> f64 {
     if x_end == x_start {
@@ -120,17 +123,41 @@ enum PrintHeaderStatus {
 }
 
 impl Server {
-    fn new() -> Server {
+    async fn new() -> Server {
         let controls: Vec<Box<dyn Control>> = vec![
             Box::new(PWMControl::new(-0.36)),
             Box::new(SimpleControl::new()),
             Box::new(PWMControl::new(-0.36)),
         ];
 
+        let web_state = if Path::new(SERVER_STATE_FILE).exists() {
+            match tokio::fs::read_to_string(SERVER_STATE_FILE).await {
+                Ok(data) => match serde_json::from_str(&data) {
+                    Ok(state) => state,
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to parse server state from {}: {}. Using default.",
+                            SERVER_STATE_FILE, e
+                        );
+                        ServerState::default()
+                    }
+                },
+                Err(e) => {
+                    eprintln!(
+                        "Failed to read server state from {}: {}. Using default.",
+                        SERVER_STATE_FILE, e
+                    );
+                    ServerState::default()
+                }
+            }
+        } else {
+            ServerState::default()
+        };
+
         Server {
             hardware_states: HashMap::new(),
             controls,
-            web_state: Arc::new(RwLock::new(ServerState::default())),
+            web_state: Arc::new(RwLock::new(web_state)),
             ws_connections: Arc::new(RwLock::new(Vec::new())),
         }
     }
@@ -292,6 +319,20 @@ impl Server {
         self.broadcast_updates(updated_device_id_for_history).await;
     }
 
+    async fn save_web_state(&self) -> Result<()> {
+        let state_guard = self.web_state.read().await;
+        match serde_json::to_string_pretty(&*state_guard) {
+            Ok(json_data) => {
+                tokio::fs::write(SERVER_STATE_FILE, json_data).await?;
+                // Optionally print a success message, or log it
+                // println!("Server state saved to {}", SERVER_STATE_FILE);
+            }
+            Err(e) => {
+                eprintln!("Failed to serialize server state for saving: {}", e);
+            }
+        }
+        Ok(())
+    }
     async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
         let device_id: Option<u32> = report.info.as_ref().and_then(|i| i.id);
 
@@ -327,6 +368,9 @@ impl Server {
         );
         stdout().flush()?;
         self.update_and_broadcast_web_state(None).await; // Relay reports don't generate new temp points directly
+        if let Err(e) = self.save_web_state().await {
+            eprintln!("Error saving server state after relay report: {}", e);
+        }
         Ok(())
     }
 
@@ -565,6 +609,9 @@ impl Server {
                     // self.update_history is called before this, so web_state has latest point
         stdout().flush()?;
         self.update_and_broadcast_web_state(Some(device_id)).await; // Pass the device_id of the sensor
+        if let Err(e) = self.save_web_state().await {
+            eprintln!("Error saving server state after sensor report: {}", e);
+        }
         Ok(())
     }
 }
@@ -600,7 +647,7 @@ impl MessageHandler<DeviceMessage> for Server {
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize the server state
-    let mut server = Server::new();
+    let mut server = Server::new().await;
     let web_state = server.web_state.clone();
     let ws_connections = server.ws_connections.clone();
 

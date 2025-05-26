@@ -1,1 +1,3 @@
 /target
+/server_state.json
+/Cargo.lock
