@@ -96,34 +96,17 @@ fn interpolate_fn_rust(intervals: &[(f64, f64)], t: DateTime<Local>) -> f64 {
     intervals.last().unwrap().1 // .unwrap() is safe due to prior .is_empty() check
 }
 
-// --- Server Structures ---
-#[derive(Debug, Clone, Copy)]
-struct RelayConfirmationState {
-    unconfirmed: bool,
-    confirmed_on_state: bool, // Last known actual state from relay report
-}
-
-impl Default for RelayConfirmationState {
-    fn default() -> Self {
-        RelayConfirmationState {
-            unconfirmed: false,        // Initially, assume confirmed (or no operation pending)
-            confirmed_on_state: false, // Default to OFF
-        }
-    }
+#[derive(Debug, Clone, Default)]
+struct HardwareState {
+    last_sensor_message_timestamp: i64,
+    last_relay_message_timestamp: i64,
+    last_reported_temperature: f64,
+    last_relay_on_status: bool,
+    relay_unconfirmed: bool,
 }
 
 struct Server {
-    // FIXME: use single map?
-    // Key: Device ID (u32)
-    last_sensor_message_timestamp: HashMap<u32, i64>,
-    last_relay_message_timestamp: HashMap<u32, i64>,
-    // Key: Device ID (u32)
-    last_temp_deci: HashMap<u32, f64>, // Storing as corrected temp
-    // Key: Device ID (u32)
-    last_relay_on_status: HashMap<u32, bool>,
-    // Key: Device ID (u32)
-    relay_confirmations: HashMap<u32, RelayConfirmationState>,
-
+    hardware_states: HashMap<u32, HardwareState>,
     controls: Vec<Box<dyn Control>>,
     web_state: Arc<RwLock<ServerState>>,
     ws_connections: Arc<RwLock<Vec<WsTx>>>, // WsTx is now defined above
@@ -145,11 +128,7 @@ impl Server {
         ];
 
         Server {
-            last_relay_message_timestamp: HashMap::new(),
-            last_sensor_message_timestamp: HashMap::new(),
-            last_temp_deci: HashMap::new(),
-            last_relay_on_status: HashMap::new(),
-            relay_confirmations: HashMap::new(),
+            hardware_states: HashMap::new(),
             controls,
             web_state: Arc::new(RwLock::new(ServerState::default())),
             ws_connections: Arc::new(RwLock::new(Vec::new())),
@@ -280,11 +259,20 @@ impl Server {
 
         for room in state_write_guard.rooms.iter_mut() {
             // Sensor availability and current temperature
-            room.sensor_available = self
-                .last_sensor_message_timestamp
-                .get(&room.id)
-                .map_or(false, |&ts| now.timestamp() - ts < 180);
-            room.current_temp = self.last_temp_deci.get(&room.id).copied().unwrap_or(0.0);
+            if let Some(hw_state) = self.hardware_states.get(&room.id) {
+                room.sensor_available =
+                    now.timestamp() - hw_state.last_sensor_message_timestamp < 180;
+                room.current_temp = hw_state.last_reported_temperature;
+                room.relay_available =
+                    now.timestamp() - hw_state.last_relay_message_timestamp < 180;
+                room.relay_state = hw_state.last_relay_on_status;
+            } else {
+                // Default values if no hardware state exists for this room.id
+                room.sensor_available = false;
+                room.current_temp = 0.0;
+                room.relay_available = false;
+                room.relay_state = false;
+            }
 
             // Target temperature from schedule and override
             let mut target_temp_val =
@@ -297,17 +285,6 @@ impl Server {
                 }
             }
             room.target_temp = target_temp_val;
-
-            // Relay availability and state
-            room.relay_available = self
-                .last_relay_message_timestamp
-                .get(&room.id)
-                .map_or(false, |&ts| now.timestamp() - ts < 180);
-            room.relay_state = self
-                .last_relay_on_status
-                .get(&room.id)
-                .copied()
-                .unwrap_or(false);
         }
 
         drop(state_write_guard); // Release write lock before broadcasting
@@ -326,18 +303,16 @@ impl Server {
         let relay_is_on = report.relay_status();
         if let Some(id) = device_id {
             if id as usize <= RELAYS.len() {
-                self.last_relay_message_timestamp
-                    .insert(id, Local::now().timestamp());
+                // Check if ID is within bounds of RELAYS array
+                let state = self.hardware_states.entry(id).or_default();
+                state.last_relay_message_timestamp = Local::now().timestamp();
+
                 if header_status == PrintHeaderStatus::Failure {
                     return Ok(());
                 }
 
-                self.last_relay_on_status.insert(id, relay_is_on);
-
-                // Update confirmation state
-                let confirmation_entry = self.relay_confirmations.entry(id).or_default();
-                confirmation_entry.unconfirmed = false;
-                confirmation_entry.confirmed_on_state = relay_is_on;
+                state.last_relay_on_status = relay_is_on;
+                state.relay_unconfirmed = false;
             }
         }
 
@@ -380,8 +355,8 @@ impl Server {
         if header_status == PrintHeaderStatus::Failure {
             // Still update last_message_timestamp even if header fails but message has ID
             if report.info.as_ref().and_then(|i| i.id).is_some() {
-                self.last_sensor_message_timestamp
-                    .insert(device_id, Local::now().timestamp());
+                let state = self.hardware_states.entry(device_id).or_default();
+                state.last_sensor_message_timestamp = Local::now().timestamp();
             }
             return Ok(());
         }
@@ -408,8 +383,9 @@ impl Server {
             return Ok(());
         }
 
-        self.last_sensor_message_timestamp
-            .insert(device_id, Local::now().timestamp());
+        // Update sensor message timestamp for the device
+        let state_for_sensor_ts = self.hardware_states.entry(device_id).or_default();
+        state_for_sensor_ts.last_sensor_message_timestamp = Local::now().timestamp();
 
         let mut temp = report.temperature_deci() as f64 * 0.1;
         let humidity = report.humidity_deci() as f64 * 0.1; // For Netdata
@@ -447,7 +423,9 @@ impl Server {
             );
             temp += CORRECTION[device_id as usize];
             print!("{:.1} (target {:.1}) ", temp, target_temp);
-            self.last_temp_deci.insert(device_id, temp);
+
+            let state_for_temp = self.hardware_states.entry(device_id).or_default();
+            state_for_temp.last_reported_temperature = temp;
 
             if let Some(override_temp_val) = room_override_temp {
                 target_temp = override_temp_val;
@@ -487,17 +465,17 @@ impl Server {
                 // Send the command
                 match set_relay(relay_hostname, mode_on & !is_disabled, delay_ms) {
                     Ok(_) => {
-                        let confirmation_state =
-                            self.relay_confirmations.entry(device_id).or_default();
+                        let state_for_relay_confirm =
+                            self.hardware_states.entry(device_id).or_default();
 
                         // C++ Relay::set_relay logging part 2: Print status based on confirmation
-                        if confirmation_state.unconfirmed {
+                        if state_for_relay_confirm.relay_unconfirmed {
                             print!(" [UNCONFIRMED]");
                         } else if delay_ms != 0 {
                             // Print current *confirmed* state before new command with delay
                             print!(
                                 " {}",
-                                if confirmation_state.confirmed_on_state {
+                                if state_for_relay_confirm.last_relay_on_status {
                                     "*ON"
                                 } else {
                                     "*OFF"
@@ -514,7 +492,7 @@ impl Server {
                         }
 
                         // Mark as unconfirmed after sending command
-                        confirmation_state.unconfirmed = true;
+                        state_for_relay_confirm.relay_unconfirmed = true;
                     }
                     Err(_e) => {
                         print!(" [NRELAY]");
@@ -537,10 +515,6 @@ impl Server {
             } else {
                 print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
             }
-        } else {
-            // Device ID out of range for configured controls/relays
-            print!("{:.1} (unmanaged) ", temp);
-            self.last_temp_deci.insert(device_id, temp); // Still store its temp if needed elsewhere
         }
 
         // Reporting for Netdata collector
