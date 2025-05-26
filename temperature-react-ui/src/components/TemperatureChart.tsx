@@ -47,6 +47,42 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     setChartOptions(generateChartOptions(isDarkMode));
   }, [isDarkMode]);
 
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (chart && chart.canvas) {
+      const canvas = chart.canvas;
+
+      const handleTouchStart = (event: TouchEvent) => {
+        if (event.touches.length > 0) {
+          canvas.style.touchAction = "none";
+        } else {
+          canvas.style.touchAction = "pan-y";
+        }
+      };
+
+      const handleTouchEnd = (event: TouchEvent) => {
+        if (event.touches.length < 1) {
+          canvas.style.touchAction = "pan-y";
+        }
+      };
+
+      // Set initial touch action
+      canvas.style.touchAction = "pan-y";
+
+      canvas.addEventListener('touchstart', handleTouchStart, { passive: true });
+      canvas.addEventListener('touchend', handleTouchEnd, { passive: true });
+      canvas.addEventListener('touchcancel', handleTouchEnd, { passive: true });
+
+      return () => {
+        canvas.removeEventListener('touchstart', handleTouchStart);
+        canvas.removeEventListener('touchend', handleTouchEnd);
+        canvas.removeEventListener('touchcancel', handleTouchEnd);
+        // Reset touch action on cleanup if needed, though new chart instance would re-init
+        canvas.style.touchAction = "none";
+      };
+    }
+  }, [chartRef.current]); // Re-run if chartRef or its canvas changes
+
   // Effect for auto-scrolling
   useEffect(() => {
     const chart = chartRef.current;
@@ -80,7 +116,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
           const move = newLastTimestamp + offset - currentXMax;
           chart.options.scales.x.min = currentXMin + move;
           chart.options.scales.x.max = currentXMax + move;
-          chart.update('none');
+          chart.update();
         }
       }
       prevLastTimestampRef.current = newLastTimestamp;
@@ -149,7 +185,19 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
           },
         },
         zoom: {
-          pan: { enabled: true, mode: 'x', threshold: 5 },
+          pan: {
+            enabled: true,
+            mode: 'x',
+            threshold: 15,
+            onPanStart: (e: any) => { // e is {chart, event, point}
+              // event is a Hammer.js event object
+              const { deltaX, deltaY } = e.event;
+              if (Math.abs(deltaY) > Math.abs(deltaX)) {
+                return false; // Abort chart panning, allow page scroll
+              }
+              return true; // Allow chart panning
+            },
+          },
           zoom: { mode: 'x', wheel: { enabled: true, speed: 0.1 }, pinch: { enabled: true }, drag: { enabled: false } },
         },
       },
