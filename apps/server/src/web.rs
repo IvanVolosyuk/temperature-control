@@ -1,21 +1,27 @@
+use crate::WsTx; // Corrected import path again
 use axum::{
+    extract::{
+        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
+        Json, Query, State,
+    },
+    http::{StatusCode, Uri},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Router,
-    response::{Html, IntoResponse, Response},
-    extract::{ws::{WebSocket, WebSocketUpgrade, Message as WsMessage}, State, Json, Query},
-    http::{StatusCode, Uri},
 };
-use std::sync::Arc;
-use tower_http::services::ServeDir;
-use tower_http::compression::CompressionLayer;
-use tokio::sync::{RwLock, mpsc};
-use futures_util::{stream::{StreamExt, SplitStream, SplitSink}, sink::SinkExt};
-use serde::{Serialize, Deserialize};
-use temperature_protocol::relay::set_relay;
-use crate::WsTx; // Corrected import path again
 use chrono::Local;
+use futures_util::{
+    sink::SinkExt,
+    stream::{SplitSink, SplitStream, StreamExt},
+};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf; // Added PathBuf
-use tokio::fs; // Added tokio::fs for reading index.html
+use std::sync::Arc;
+use temperature_protocol::relay::set_relay;
+use tokio::fs;
+use tokio::sync::{mpsc, RwLock};
+use tower_http::compression::CompressionLayer;
+use tower_http::services::ServeDir; // Added tokio::fs for reading index.html
 
 // Shared state between temperature server and web server
 #[derive(Clone)]
@@ -75,38 +81,72 @@ pub struct OverrideTemperatureRequest {
     temperature: Option<f64>,
 }
 
-
-pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>, ws_connections: Arc<RwLock<Vec<WsTx>>>) {
-    let app_state = WebState { server_state, ws_connections };
+pub async fn create_web_server(
+    server_state: Arc<RwLock<ServerState>>,
+    ws_connections: Arc<RwLock<Vec<WsTx>>>,
+) {
+    let app_state = WebState {
+        server_state,
+        ws_connections,
+    };
 
     // Path to the React app's dist directory - adjust if server runs from different location
     let react_dist_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap().parent().unwrap() // Navigate from apps/server/Cargo.toml to repo root
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap() // Navigate from apps/server/Cargo.toml to repo root
         .join("temperature-react-ui/dist");
 
     let assets_path = react_dist_path.join("assets");
 
     let spa_router = Router::new()
         .nest_service("/assets", ServeDir::new(assets_path.clone())) // Serve static assets (JS, CSS)
-        .nest_service("/favicon.ico", tower_http::services::ServeFile::new(react_dist_path.join("favicon.ico")))
-        .nest_service("/manifest.json", tower_http::services::ServeFile::new(react_dist_path.join("manifest.json")))
+        .nest_service(
+            "/favicon.ico",
+            tower_http::services::ServeFile::new(react_dist_path.join("favicon.ico")),
+        )
+        .nest_service(
+            "/manifest.json",
+            tower_http::services::ServeFile::new(react_dist_path.join("manifest.json")),
+        )
         // Add other specific public files if needed (e.g., favicons, svgs)
         // These were moved to temperature-react-ui/public and should be in dist after build
-        .nest_service("/favicon.png", tower_http::services::ServeFile::new(react_dist_path.join("favicon.png")))
-        .nest_service("/favicon-192.png", tower_http::services::ServeFile::new(react_dist_path.join("favicon-192.png")))
-        .nest_service("/favicon-512.png", tower_http::services::ServeFile::new(react_dist_path.join("favicon-512.png")))
-        .nest_service("/power.svg", tower_http::services::ServeFile::new(react_dist_path.join("power.svg")))
-        .nest_service("/thermometer.svg", tower_http::services::ServeFile::new(react_dist_path.join("thermometer.svg")))
-        .nest_service("/vite.svg", tower_http::services::ServeFile::new(react_dist_path.join("vite.svg"))) // Vite's default icon
+        .nest_service(
+            "/favicon.png",
+            tower_http::services::ServeFile::new(react_dist_path.join("favicon.png")),
+        )
+        .nest_service(
+            "/favicon-192.png",
+            tower_http::services::ServeFile::new(react_dist_path.join("favicon-192.png")),
+        )
+        .nest_service(
+            "/favicon-512.png",
+            tower_http::services::ServeFile::new(react_dist_path.join("favicon-512.png")),
+        )
+        .nest_service(
+            "/power.svg",
+            tower_http::services::ServeFile::new(react_dist_path.join("power.svg")),
+        )
+        .nest_service(
+            "/thermometer.svg",
+            tower_http::services::ServeFile::new(react_dist_path.join("thermometer.svg")),
+        )
+        .nest_service(
+            "/vite.svg",
+            tower_http::services::ServeFile::new(react_dist_path.join("vite.svg")),
+        ) // Vite's default icon
         .fallback(get(serve_react_app_index)); // Fallback to serving index.html for SPA routing
-
 
     let app = Router::new()
         // API routes (ensure they are matched before SPA fallback)
         .route("/api/status", get(get_status))
         .route("/api/relay", post(control_relay))
         .route("/api/disable", post(disable_heater))
-        .route("/api/override_temperature", post(override_temperature_handler))
+        .route(
+            "/api/override_temperature",
+            post(override_temperature_handler),
+        )
         .route("/ws", get(ws_handler))
         // Mount the SPA router (serving static files and index.html)
         // IMPORTANT: This should generally be the last thing if it has a broad fallback
@@ -115,16 +155,16 @@ pub async fn create_web_server(server_state: Arc<RwLock<ServerState>>, ws_connec
         .with_state(app_state);
 
     println!("Starting web server on http://localhost:8080");
-    println!("React app should be served from: {}", react_dist_path.display());
+    println!(
+        "React app should be served from: {}",
+        react_dist_path.display()
+    );
     println!("Assets should be served from: {}", assets_path.display());
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<WebState>,
-) -> Response {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<WebState>) -> Response {
     println!("WebSocket connection upgrade requested");
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
@@ -136,8 +176,10 @@ async fn handle_socket(socket: WebSocket, state: WebState) {
 
     // Add this connection's sender to the shared list
     state.ws_connections.write().await.push(tx.clone());
-    println!("WebSocket TX channel added to shared list. Total connections: {}", state.ws_connections.read().await.len());
-
+    println!(
+        "WebSocket TX channel added to shared list. Total connections: {}",
+        state.ws_connections.read().await.len()
+    );
 
     let mut rx_task = tokio::spawn(send_state_updates(rx, ws_sender));
     let mut tx_task = tokio::spawn(receive_ws_messages(ws_receiver, tx.clone(), state.clone())); // Pass a clone of tx for removal later
@@ -159,7 +201,10 @@ async fn handle_socket(socket: WebSocket, state: WebState) {
     let mut conns = state.ws_connections.write().await;
     if let Some(pos) = conns.iter().position(|x| x.same_channel(&tx)) {
         conns.remove(pos);
-        println!("WebSocket TX channel removed. Total connections: {}", conns.len());
+        println!(
+            "WebSocket TX channel removed. Total connections: {}",
+            conns.len()
+        );
     } else {
         println!("WebSocket TX channel not found in shared list for removal.");
     }
@@ -191,7 +236,10 @@ async fn receive_ws_messages(
                     break; // Exit loop on close message
                 }
                 // Process other messages if needed
-                println!("Received message from client (currently ignored): {:?}", msg);
+                println!(
+                    "Received message from client (currently ignored): {:?}",
+                    msg
+                );
             }
             Err(e) => {
                 println!("Error receiving message from WebSocket client: {}", e);
@@ -202,12 +250,14 @@ async fn receive_ws_messages(
     Ok(())
 }
 
-
 // Serves the index.html for the React SPA
 async fn serve_react_app_index(uri: Uri) -> impl IntoResponse {
     println!("Fallback route hit for URI: {}", uri); // Log which URI is hitting fallback
     let react_dist_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap().parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("temperature-react-ui/dist");
     let index_html_path = react_dist_path.join("index.html");
 
@@ -215,7 +265,11 @@ async fn serve_react_app_index(uri: Uri) -> impl IntoResponse {
         Ok(content) => Html(content).into_response(),
         Err(e) => {
             eprintln!("Error reading React index.html: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to load React app: {}", e)).into_response()
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to load React app: {}", e),
+            )
+                .into_response()
         }
     }
 }
@@ -228,12 +282,16 @@ async fn get_status(
     let mut response_state = (*server_state).clone();
 
     if let Some(last_update) = query.last_update {
-        response_state.bedroom.temperature_history = server_state.bedroom.temperature_history
+        response_state.bedroom.temperature_history = server_state
+            .bedroom
+            .temperature_history
             .iter()
             .filter(|point| point.timestamp > last_update)
             .cloned()
             .collect();
-        response_state.kids_bedroom.temperature_history = server_state.kids_bedroom.temperature_history
+        response_state.kids_bedroom.temperature_history = server_state
+            .kids_bedroom
+            .temperature_history
             .iter()
             .filter(|point| point.timestamp > last_update)
             .cloned()
@@ -249,7 +307,7 @@ async fn control_relay(
     let relay_hostname = match request.room.as_str() {
         "bedroom" => "esp8266-relay0.local",
         "kids_bedroom" => "esp8266-relay2.local",
-        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" }))
+        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
     };
 
     match set_relay(relay_hostname, request.state, 0) {
@@ -262,7 +320,7 @@ async fn control_relay(
             }
             axum::Json(serde_json::json!({ "success": true }))
         }
-        Err(e) => axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }))
+        Err(e) => axum::Json(serde_json::json!({ "success": false, "error": e.to_string() })),
     }
 }
 
@@ -274,18 +332,19 @@ async fn disable_heater(
     let room_state_arc = match request.room.as_str() {
         "bedroom" => &mut server_state.bedroom,
         "kids_bedroom" => &mut server_state.kids_bedroom,
-        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" }))
+        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room" })),
     };
 
     if request.disable {
         room_state_arc.disabled_until = Some(Local::now().timestamp() + 2 * 3600);
         room_state_arc.override_temperature = None; // Clear override
         room_state_arc.override_until = None; // Clear override
-        if room_state_arc.relay_state { // if heater is on, turn it off
+        if room_state_arc.relay_state {
+            // if heater is on, turn it off
             let relay_hostname = match request.room.as_str() {
                 "bedroom" => "esp8266-relay0.local",
                 "kids_bedroom" => "esp8266-relay2.local",
-                _ => unreachable!()
+                _ => unreachable!(),
             };
             if let Err(e) = set_relay(relay_hostname, false, 0) {
                 return axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }));

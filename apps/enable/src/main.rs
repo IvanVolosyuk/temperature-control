@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use protobuf::Message;
 use std::env;
 use std::net::UdpSocket;
@@ -11,18 +11,31 @@ fn main() -> Result<()> {
     }
     let mut c = LoggerControl::new();
     for arg in &args[2..] {
-        if arg == "+serial" { c.set_log_to_serial(true); }
-        else if arg == "-serial" { c.set_log_to_serial(false); }
-        else if arg == "+store" { c.set_store_log(true); }
-        else if arg == "-store" { c.set_store_log(false); }
-        else if arg == "+send" { c.set_send_log(true); }
-        else if arg == "-send" { c.set_send_log(false); }
-        else if arg == "+once" { c.set_send_once(true); }
-        else if arg == "-once" { c.set_send_once(false); }
-        else if arg == "+exp" { c.set_experiment(true); }
-        else if arg == "-exp" { c.set_experiment(false); }
-        else if arg == "restart" { c.set_device_restart(true); }
-        else { bail!("Unknown arg: {}", arg); }
+        if arg == "+serial" {
+            c.set_log_to_serial(true);
+        } else if arg == "-serial" {
+            c.set_log_to_serial(false);
+        } else if arg == "+store" {
+            c.set_store_log(true);
+        } else if arg == "-store" {
+            c.set_store_log(false);
+        } else if arg == "+send" {
+            c.set_send_log(true);
+        } else if arg == "-send" {
+            c.set_send_log(false);
+        } else if arg == "+once" {
+            c.set_send_once(true);
+        } else if arg == "-once" {
+            c.set_send_once(false);
+        } else if arg == "+exp" {
+            c.set_experiment(true);
+        } else if arg == "-exp" {
+            c.set_experiment(false);
+        } else if arg == "restart" {
+            c.set_device_restart(true);
+        } else {
+            bail!("Unknown arg: {}", arg);
+        }
     }
 
     let udp = UdpSocket::bind("0.0.0.0:0")?;

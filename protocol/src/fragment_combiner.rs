@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use std::collections::HashMap;
-use tokio::net::UdpSocket;
 use std::marker::PhantomData;
+use tokio::net::UdpSocket;
 
 #[derive(Debug)]
 struct FragInfo {

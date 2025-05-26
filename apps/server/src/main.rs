@@ -2,28 +2,28 @@ pub mod pwm;
 pub mod schedule;
 pub mod web;
 
+use crate::schedule::INTERPOLATE_INTERVALS;
 use anyhow::{Context, Result};
+use axum::extract::ws::Message as WsMessage;
 use chrono::{DateTime, Local, Timelike};
 use std::collections::HashMap;
-use std::fs::{File, rename};
-use std::io::{Write, stdout};
+use std::fs::{rename, File};
+use std::io::{stdout, Write};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
-use axum::extract::ws::Message as WsMessage;
-use crate::schedule::INTERPOLATE_INTERVALS;
+use tokio::sync::{mpsc, RwLock};
 // Make WsTx available to web.rs by defining it here and making it public
 pub type WsTx = mpsc::Sender<WsMessage>;
-use crate::web::{ServerState, create_web_server, TemperaturePoint};
+use crate::web::{create_web_server, ServerState, TemperaturePoint};
 
 // These are from the temperature_protocol crate
 use temperature_protocol::fragment_combiner::{FragmentCombiner, MessageHandler};
 use temperature_protocol::protos::generated::dev::{
-    DeviceMessage, DeviceInfo, SensorReport, RelayReport, SensorError,
+    DeviceInfo, DeviceMessage, RelayReport, SensorError, SensorReport,
 };
 use temperature_protocol::relay::set_relay;
 
-use crate::pwm::{Control, SimpleControl, PWMControl};
+use crate::pwm::{Control, PWMControl, SimpleControl};
 
 // --- Constants mimicking C++ globals ---
 const RELAYS: [&str; 3] = [
@@ -42,11 +42,10 @@ const CORRECTION: [f64; 3] = [
 const BEDROOM_SENSOR_EXPECTED_IP: &str = "192.168.0.200";
 const BEDROOM_RELAY_EXPECTED_IP: &str = "192.168.0.210"; // This is esp8266-relay0.local
 const KIDS_SENSOR_EXPECTED_IP: &str = "192.168.0.202";
-const KIDS_RELAY_EXPECTED_IP: &str = "192.168.0.212";   // This is esp8266-relay2.local
+const KIDS_RELAY_EXPECTED_IP: &str = "192.168.0.212"; // This is esp8266-relay2.local
 
 // Path for Netdata files
 const NETDATA_PATH_PREFIX: &str = "/var/lib/temperature";
-
 
 fn linear_rust(val_start: f64, val_end: f64, x_start: f64, x_end: f64, x_target: f64) -> f64 {
     if x_end == x_start {
@@ -75,9 +74,7 @@ fn interpolate_fn_rust(intervals: &[(f64, f64)], t: DateTime<Local>) -> f64 {
         panic!("Intervals slice cannot be empty.");
     }
 
-    let hour_target = t.hour() as f64
-        + (t.minute() as f64 / 60.0)
-        + (t.second() as f64 / 3600.0);
+    let hour_target = t.hour() as f64 + (t.minute() as f64 / 60.0) + (t.second() as f64 / 3600.0);
 
     // If target hour is before or at the first point's hour, return the first point's temperature
     if hour_target <= intervals[0].0 {
@@ -115,7 +112,7 @@ struct RelayConfirmationState {
 impl Default for RelayConfirmationState {
     fn default() -> Self {
         RelayConfirmationState {
-            unconfirmed: false, // Initially, assume confirmed (or no operation pending)
+            unconfirmed: false,        // Initially, assume confirmed (or no operation pending)
             confirmed_on_state: false, // Default to OFF
         }
     }
@@ -166,10 +163,7 @@ impl Server {
         let device_id = match info.id {
             Some(id) => id,
             None => {
-                print!(
-                    "Message without id from {}\n",
-                    client_address_str
-                );
+                print!("Message without id from {}\n", client_address_str);
                 let _ = stdout().flush();
                 return PrintHeaderStatus::Failure;
             }
@@ -195,7 +189,15 @@ impl Server {
         status
     }
 
-    async fn update_history(&self, device_id : u32, current_timestamp: i64, temp: f64, target_temp: f64, header_on: bool, is_disabled: bool) -> Result<()> {
+    async fn update_history(
+        &self,
+        device_id: u32,
+        current_timestamp: i64,
+        temp: f64,
+        target_temp: f64,
+        header_on: bool,
+        is_disabled: bool,
+    ) -> Result<()> {
         //Update temperature history in web state
         let mut web_state = self.web_state.write().await;
         let room_state = if device_id == 0 {
@@ -211,21 +213,27 @@ impl Server {
             timestamp: current_timestamp,
             temperature: temp,
             target: target_temp,
-            heater_on : header_on,
+            heater_on: header_on,
             is_disabled,
         });
 
         // Keep only last 48 hours of data
         let cutout = current_timestamp - 3600 * 48;
-        room_state.temperature_history.retain(|point| point.timestamp >= cutout);
+        room_state
+            .temperature_history
+            .retain(|point| point.timestamp >= cutout);
         return Ok(());
     }
 
     async fn broadcast_updates(&self, state_json: String) {
         let ws_connections_read_lock = self.ws_connections.read().await;
         for tx in ws_connections_read_lock.iter() {
-            if tx.send(WsMessage::Text(state_json.clone().into())).await.is_err() { // Added .into()
-                // Remove broken connections on next write lock
+            if tx
+                .send(WsMessage::Text(state_json.clone().into()))
+                .await
+                .is_err()
+            { // Added .into()
+                 // Remove broken connections on next write lock
             }
         }
     }
@@ -234,40 +242,58 @@ impl Server {
         let mut state = self.web_state.write().await;
 
         // Update bedroom state
-        state.bedroom.sensor_available = self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP)
+        state.bedroom.sensor_available = self
+            .last_message_timestamp
+            .get(BEDROOM_SENSOR_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
         state.bedroom.current_temp = self.last_temp_deci.get(&0).copied().unwrap_or(0.0);
         // Calculate scheduled target_temp first
         let mut bedroom_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[0], Local::now());
         // Check for override
-        if let (Some(override_until_ts), Some(override_temp_val)) = (state.bedroom.override_until, state.bedroom.override_temperature) {
+        if let (Some(override_until_ts), Some(override_temp_val)) = (
+            state.bedroom.override_until,
+            state.bedroom.override_temperature,
+        ) {
             if override_until_ts > Local::now().timestamp() {
                 bedroom_target_temp = override_temp_val;
             }
         }
         state.bedroom.target_temp = bedroom_target_temp;
-        state.bedroom.relay_available = self.last_message_timestamp.get(BEDROOM_RELAY_EXPECTED_IP)
+        state.bedroom.relay_available = self
+            .last_message_timestamp
+            .get(BEDROOM_RELAY_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
-        state.bedroom.relay_state = self.last_relay_on_status.get(BEDROOM_RELAY_EXPECTED_IP)
+        state.bedroom.relay_state = self
+            .last_relay_on_status
+            .get(BEDROOM_RELAY_EXPECTED_IP)
             .copied()
             .unwrap_or(false);
 
         // Update kids bedroom state
-        state.kids_bedroom.sensor_available = self.last_message_timestamp.get(KIDS_SENSOR_EXPECTED_IP)
+        state.kids_bedroom.sensor_available = self
+            .last_message_timestamp
+            .get(KIDS_SENSOR_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
         state.kids_bedroom.current_temp = self.last_temp_deci.get(&2).copied().unwrap_or(0.0);
         // Calculate scheduled target_temp first
         let mut kids_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[2], Local::now());
         // Check for override
-        if let (Some(override_until_ts), Some(override_temp_val)) = (state.kids_bedroom.override_until, state.kids_bedroom.override_temperature) {
+        if let (Some(override_until_ts), Some(override_temp_val)) = (
+            state.kids_bedroom.override_until,
+            state.kids_bedroom.override_temperature,
+        ) {
             if override_until_ts > Local::now().timestamp() {
                 kids_target_temp = override_temp_val;
             }
         }
         state.kids_bedroom.target_temp = kids_target_temp;
-        state.kids_bedroom.relay_available = self.last_message_timestamp.get(KIDS_RELAY_EXPECTED_IP)
+        state.kids_bedroom.relay_available = self
+            .last_message_timestamp
+            .get(KIDS_RELAY_EXPECTED_IP)
             .map_or(false, |&ts| Local::now().timestamp() - ts < 180);
-        state.kids_bedroom.relay_state = self.last_relay_on_status.get(KIDS_RELAY_EXPECTED_IP)
+        state.kids_bedroom.relay_state = self
+            .last_relay_on_status
+            .get(KIDS_RELAY_EXPECTED_IP)
             .copied()
             .unwrap_or(false);
 
@@ -279,22 +305,28 @@ impl Server {
 
     async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
-        self.last_message_timestamp.insert(client_ip_str.clone(), Local::now().timestamp());
+        self.last_message_timestamp
+            .insert(client_ip_str.clone(), Local::now().timestamp());
 
         let device_id = report.info.as_ref().and_then(|i| i.id);
 
-        let header_status = self.print_header(&client_ip_str, report.info.as_ref().unwrap_or(&DeviceInfo::default()));
+        let header_status = self.print_header(
+            &client_ip_str,
+            report.info.as_ref().unwrap_or(&DeviceInfo::default()),
+        );
         if header_status == PrintHeaderStatus::Failure {
             return Ok(());
         }
 
         let relay_is_on = report.relay_status();
-        self.last_relay_on_status.insert(client_ip_str.clone(), relay_is_on);
+        self.last_relay_on_status
+            .insert(client_ip_str.clone(), relay_is_on);
 
         // Update confirmation state
         if let Some(id_val) = device_id {
             if let Some(relay_hostname) = RELAYS.get(id_val as usize) {
-                let confirmation_entry = self.relay_confirmations
+                let confirmation_entry = self
+                    .relay_confirmations
                     .entry(relay_hostname.to_string())
                     .or_default();
                 confirmation_entry.unconfirmed = false;
@@ -302,9 +334,14 @@ impl Server {
             }
         }
 
-        print!("Relay: {}{}",
+        print!(
+            "Relay: {}{}",
             if relay_is_on { "ON" } else { "OFF" },
-            if header_status == PrintHeaderStatus::HasStatusUpdate { "\n" } else { "\r" }
+            if header_status == PrintHeaderStatus::HasStatusUpdate {
+                "\n"
+            } else {
+                "\r"
+            }
         );
         stdout().flush()?;
         self.update_and_broadcast_web_state().await;
@@ -322,7 +359,8 @@ impl Server {
             &web_state.bedroom // Default to bedroom, won't be used
         };
 
-        return room_state.disabled_until
+        return room_state
+            .disabled_until
             .map(|until| current_timestamp < until)
             .unwrap_or(false);
     }
@@ -330,11 +368,15 @@ impl Server {
     async fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
         let client_ip_str = src.ip().to_string();
 
-        let header_status = self.print_header(&client_ip_str, report.info.as_ref().unwrap_or(&DeviceInfo::default()));
+        let header_status = self.print_header(
+            &client_ip_str,
+            report.info.as_ref().unwrap_or(&DeviceInfo::default()),
+        );
         if header_status == PrintHeaderStatus::Failure {
             // Still update last_message_timestamp even if header fails but message has ID
             if report.info.as_ref().and_then(|i| i.id).is_some() {
-                 self.last_message_timestamp.insert(client_ip_str.clone(), Local::now().timestamp());
+                self.last_message_timestamp
+                    .insert(client_ip_str.clone(), Local::now().timestamp());
             }
             return Ok(());
         }
@@ -342,12 +384,14 @@ impl Server {
         let device_id = report.info.as_ref().and_then(|i| i.id).unwrap_or(u32::MAX); // Use a sentinel if no ID
 
         if report.has_sensor_error() {
-            let error_name = match SensorError::try_from(report.sensor_error()).unwrap_or(SensorError::S_CHECKSUM) {
-                 SensorError::S_TIMEOUT_LOW_PULSE => "S_TIMEOUT_LOW_PULSE",
-                 SensorError::S_TIMEOUT_HIGH_PULSE => "S_TIMEOUT_HIGH_PULSE",
-                 SensorError::S_TIME_PULSE => "S_TIME_PULSE",
-                 SensorError::S_CHECKSUM => "S_CHECKSUM",
-                 SensorError::S_BUTTON_EVENT => "S_BUTTON_EVENT",
+            let error_name = match SensorError::try_from(report.sensor_error())
+                .unwrap_or(SensorError::S_CHECKSUM)
+            {
+                SensorError::S_TIMEOUT_LOW_PULSE => "S_TIMEOUT_LOW_PULSE",
+                SensorError::S_TIMEOUT_HIGH_PULSE => "S_TIMEOUT_HIGH_PULSE",
+                SensorError::S_TIME_PULSE => "S_TIME_PULSE",
+                SensorError::S_CHECKSUM => "S_CHECKSUM",
+                SensorError::S_BUTTON_EVENT => "S_BUTTON_EVENT",
             };
             print!("({}) ", error_name);
         } else if report.has_temperature_deci() {
@@ -361,7 +405,8 @@ impl Server {
             return Ok(());
         }
 
-        self.last_message_timestamp.insert(client_ip_str.clone(), Local::now().timestamp());
+        self.last_message_timestamp
+            .insert(client_ip_str.clone(), Local::now().timestamp());
 
         let mut temp = report.temperature_deci() as f64 * 0.1;
         let humidity = report.humidity_deci() as f64 * 0.1; // For Netdata
@@ -377,7 +422,8 @@ impl Server {
         // Read override status early and release the lock
         let mut room_override_temp = None;
 
-        if device_id == 0 || device_id == 2 { // Only check for rooms we manage overrides for
+        if device_id == 0 || device_id == 2 {
+            // Only check for rooms we manage overrides for
             let web_state_lock = self.web_state.read().await;
             let room_state_for_override = if device_id == 0 {
                 &web_state_lock.bedroom
@@ -385,7 +431,10 @@ impl Server {
                 &web_state_lock.kids_bedroom
             };
 
-            if let (Some(override_until_ts), Some(override_val)) = (room_state_for_override.override_until, room_state_for_override.override_temperature) {
+            if let (Some(override_until_ts), Some(override_val)) = (
+                room_state_for_override.override_until,
+                room_state_for_override.override_temperature,
+            ) {
                 if override_until_ts > current_timestamp {
                     room_override_temp = Some(override_val);
                 }
@@ -394,33 +443,35 @@ impl Server {
             drop(web_state_lock);
         }
 
-        if (device_id as usize) < INTERPOLATE_INTERVALS.len() { // Check if ID is within manageable range
+        if (device_id as usize) < INTERPOLATE_INTERVALS.len() {
+            // Check if ID is within manageable range
             if let Some(override_temp_val) = room_override_temp {
                 target_temp = override_temp_val;
                 print!("[SET {:.1}C] ", target_temp);
                 applied_override = true;
             } else {
-                target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
+                target_temp =
+                    interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time);
             }
 
             temp += CORRECTION[device_id as usize];
-            if !applied_override { // Avoid double printing target if override was applied
+            if !applied_override {
+                // Avoid double printing target if override was applied
                 print!("{:.1} (target {:.1}) ", temp, target_temp);
             } else {
-                 print!("{:.1} ", temp); // Just print current temp if override already printed target
+                print!("{:.1} ", temp); // Just print current temp if override already printed target
             }
             self.last_temp_deci.insert(device_id, temp);
 
             let is_disabled = self.is_heater_disabled(device_id, current_timestamp).await;
-            let future_target_temp = interpolate_fn_rust(INTERPOLATE_INTERVALS[device_id as usize], current_time + chrono::Duration::minutes(10));
+            let future_target_temp = interpolate_fn_rust(
+                INTERPOLATE_INTERVALS[device_id as usize],
+                current_time + chrono::Duration::minutes(10),
+            );
 
             if let Some(control_strategy) = self.controls.get_mut(device_id as usize) {
-                let (mode_on, delay_ms) = control_strategy.get_mode(
-                    temp,
-                    target_temp,
-                    future_target_temp,
-                    current_time
-                );
+                let (mode_on, delay_ms) =
+                    control_strategy.get_mode(temp, target_temp, future_target_temp, current_time);
                 // Call set_output on the control strategy object itself (for its internal state)
                 control_strategy.set_output(mode_on, delay_ms, current_time);
 
@@ -442,7 +493,8 @@ impl Server {
                 // Send the command
                 match set_relay(relay_hostname, mode_on & !is_disabled, delay_ms) {
                     Ok(_) => {
-                        let confirmation_state = self.relay_confirmations
+                        let confirmation_state = self
+                            .relay_confirmations
                             .entry(relay_hostname.to_string())
                             .or_default();
 
@@ -451,13 +503,22 @@ impl Server {
                             print!(" [UNCONFIRMED]");
                         } else if delay_ms != 0 {
                             // Print current *confirmed* state before new command with delay
-                            print!(" {}", if confirmation_state.confirmed_on_state { "*ON" } else { "*OFF" });
+                            print!(
+                                " {}",
+                                if confirmation_state.confirmed_on_state {
+                                    "*ON"
+                                } else {
+                                    "*OFF"
+                                }
+                            );
                         }
 
                         if delay_ms != 0 {
-                            print!(" ({:.1}m->{})",
+                            print!(
+                                " ({:.1}m->{})",
                                 delay_ms as f64 / 60_000.0,
-                                if mode_on { "ON" } else { "OFF" });
+                                if mode_on { "ON" } else { "OFF" }
+                            );
                         }
 
                         // Mark as unconfirmed after sending command
@@ -471,13 +532,20 @@ impl Server {
                 print!("[NO_CONTROL_FOR_ID:{}] ", device_id);
             }
             // Update web state after processing the report
-            self.update_history(device_id, current_timestamp, temp, target_temp, heater_on, is_disabled).await?;
+            self.update_history(
+                device_id,
+                current_timestamp,
+                temp,
+                target_temp,
+                heater_on,
+                is_disabled,
+            )
+            .await?;
         } else {
             // Device ID out of range for configured controls/relays
             print!("{:.1} (unmanaged) ", temp);
             self.last_temp_deci.insert(device_id, temp); // Still store its temp if needed elsewhere
         }
-
 
         // Reporting for Netdata collector
         let tmp_file_path_str = format!("{}/new{}", NETDATA_PATH_PREFIX, device_id);
@@ -488,7 +556,7 @@ impl Server {
         match File::create(&tmp_file_path_str) {
             Ok(mut file) => {
                 if let Err(e) = writeln!(file, "SET temperature = {:.0}", temp * 10.0) {
-                     eprintln!("Error writing temperature to {}: {}", tmp_file_path_str, e);
+                    eprintln!("Error writing temperature to {}: {}", tmp_file_path_str, e);
                 }
                 if let Err(e) = writeln!(file, "SET target = {:.0}", target_temp * 10.0) {
                     eprintln!("Error writing target to {}: {}", tmp_file_path_str, e);
@@ -496,22 +564,29 @@ impl Server {
                 // C++ dprintf, then close, then rename. Rust write, then rename.
                 drop(file); // Ensure file is closed before rename
                 if let Err(e) = rename(&tmp_file_path_str, &current_file_path_str) {
-                    eprintln!("Error renaming {} to {}: {}", tmp_file_path_str, current_file_path_str, e);
+                    eprintln!(
+                        "Error renaming {} to {}: {}",
+                        tmp_file_path_str, current_file_path_str, e
+                    );
                 }
             }
             Err(e) => eprintln!("Error creating {}: {}", tmp_file_path_str, e),
         }
 
         // Write humidity
-        match File::create(&tmp_file_path_str) { // Reuse tmp_file_path_str for humidity
+        match File::create(&tmp_file_path_str) {
+            // Reuse tmp_file_path_str for humidity
             Ok(mut file) => {
-                 if let Err(e) = writeln!(file, "SET humidity = {:.0}", humidity * 10.0) {
-                     eprintln!("Error writing humidity to {}: {}", tmp_file_path_str, e);
-                 }
-                 drop(file);
-                 if let Err(e) = rename(&tmp_file_path_str, &humidity_file_path_str) {
-                    eprintln!("Error renaming {} to {}: {}", tmp_file_path_str, humidity_file_path_str, e);
-                 }
+                if let Err(e) = writeln!(file, "SET humidity = {:.0}", humidity * 10.0) {
+                    eprintln!("Error writing humidity to {}: {}", tmp_file_path_str, e);
+                }
+                drop(file);
+                if let Err(e) = rename(&tmp_file_path_str, &humidity_file_path_str) {
+                    eprintln!(
+                        "Error renaming {} to {}: {}",
+                        tmp_file_path_str, humidity_file_path_str, e
+                    );
+                }
             }
             Err(e) => eprintln!("Error creating {}: {}", tmp_file_path_str, e),
         }
@@ -530,26 +605,69 @@ impl Server {
             src
         );
 
-        let temp0_str = self.last_temp_deci.get(&0).map_or_else(|| "N/A".to_string(), |t| format!("{:.1}", t));
-        let relay0_on_str = self.last_relay_on_status.get(BEDROOM_RELAY_EXPECTED_IP).map_or_else(|| "", |&on| if on { " [ON]" } else { "" });
+        let temp0_str = self
+            .last_temp_deci
+            .get(&0)
+            .map_or_else(|| "N/A".to_string(), |t| format!("{:.1}", t));
+        let relay0_on_str = self
+            .last_relay_on_status
+            .get(BEDROOM_RELAY_EXPECTED_IP)
+            .map_or_else(|| "", |&on| if on { " [ON]" } else { "" });
 
-        let temp2_str = self.last_temp_deci.get(&2).map_or_else(|| "N/A".to_string(), |t| format!("{:.1}", t));
-        let relay2_on_str = self.last_relay_on_status.get(KIDS_RELAY_EXPECTED_IP).map_or_else(|| "", |&on| if on { " [ON]" } else { "" });
+        let temp2_str = self
+            .last_temp_deci
+            .get(&2)
+            .map_or_else(|| "N/A".to_string(), |t| format!("{:.1}", t));
+        let relay2_on_str = self
+            .last_relay_on_status
+            .get(KIDS_RELAY_EXPECTED_IP)
+            .map_or_else(|| "", |&on| if on { " [ON]" } else { "" });
 
-        let mut diag_message = format!("Temp0: {}{}, Temp2: {}{}", temp0_str, relay0_on_str, temp2_str, relay2_on_str);
+        let mut diag_message = format!(
+            "Temp0: {}{}, Temp2: {}{}",
+            temp0_str, relay0_on_str, temp2_str, relay2_on_str
+        );
 
         let now_ts = current_time.timestamp();
         let staleness_threshold = 180; // 3 minutes
 
-        if now_ts - self.last_message_timestamp.get(BEDROOM_SENSOR_EXPECTED_IP).cloned().unwrap_or(0) > staleness_threshold {
+        if now_ts
+            - self
+                .last_message_timestamp
+                .get(BEDROOM_SENSOR_EXPECTED_IP)
+                .cloned()
+                .unwrap_or(0)
+            > staleness_threshold
+        {
             diag_message += "\nFAIL: Bedroom sensor";
-        } else if now_ts - self.last_message_timestamp.get(BEDROOM_RELAY_EXPECTED_IP).cloned().unwrap_or(0) > staleness_threshold {
+        } else if now_ts
+            - self
+                .last_message_timestamp
+                .get(BEDROOM_RELAY_EXPECTED_IP)
+                .cloned()
+                .unwrap_or(0)
+            > staleness_threshold
+        {
             diag_message += "\nFAIL: Bedroom relay";
         }
 
-        if now_ts - self.last_message_timestamp.get(KIDS_SENSOR_EXPECTED_IP).cloned().unwrap_or(0) > staleness_threshold {
+        if now_ts
+            - self
+                .last_message_timestamp
+                .get(KIDS_SENSOR_EXPECTED_IP)
+                .cloned()
+                .unwrap_or(0)
+            > staleness_threshold
+        {
             diag_message += "\nFAIL: Kids sensor";
-        } else if now_ts - self.last_message_timestamp.get(KIDS_RELAY_EXPECTED_IP).cloned().unwrap_or(0) > staleness_threshold {
+        } else if now_ts
+            - self
+                .last_message_timestamp
+                .get(KIDS_RELAY_EXPECTED_IP)
+                .cloned()
+                .unwrap_or(0)
+            > staleness_threshold
+        {
             diag_message += "\nFAIL: Kids relay";
         }
 
@@ -615,5 +733,7 @@ async fn main() -> Result<()> {
 
     // Start the main loop using FragmentCombiner
     println!("Starting temperature server on 0.0.0.0:4000...");
-    FragmentCombiner::new(&mut server).main_loop("0.0.0.0:4000").await
+    FragmentCombiner::new(&mut server)
+        .main_loop("0.0.0.0:4000")
+        .await
 }
