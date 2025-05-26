@@ -165,21 +165,18 @@ pub async fn create_web_server(
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<WebState>) -> Response {
-    println!("WebSocket connection upgrade requested");
+    //println!("WebSocket connection upgrade requested");
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(socket: WebSocket, state: WebState) {
-    println!("WebSocket connection established");
+    //println!("WebSocket connection established");
     let (ws_sender, ws_receiver) = socket.split();
     let (tx, rx) = mpsc::channel(100); // Channel for this specific connection
 
     // Add this connection's sender to the shared list
     state.ws_connections.write().await.push(tx.clone());
-    println!(
-        "WebSocket TX channel added to shared list. Total connections: {}",
-        state.ws_connections.read().await.len()
-    );
+    //println!("WebSocket TX channel added to shared list. Total connections: {}", state.ws_connections.read().await.len());
 
     let mut rx_task = tokio::spawn(send_state_updates(rx, ws_sender));
     let mut tx_task = tokio::spawn(receive_ws_messages(ws_receiver, tx.clone(), state.clone())); // Pass a clone of tx for removal later
@@ -187,26 +184,23 @@ async fn handle_socket(socket: WebSocket, state: WebState) {
     // Keep the connection alive until one of the tasks finishes
     tokio::select! {
         _ = (&mut rx_task) => {
-            println!("RX task finished.");
+            //println!("RX task finished.");
             tx_task.abort(); // Abort the other task
         },
         _ = (&mut tx_task) => {
-            println!("TX task finished.");
+            //println!("TX task finished.");
             rx_task.abort(); // Abort the other task
         },
     }
 
-    println!("WebSocket connection closing. Removing TX channel from shared list.");
+    //println!("WebSocket connection closing. Removing TX channel from shared list.");
     // Remove the sender from the list
     let mut conns = state.ws_connections.write().await;
     if let Some(pos) = conns.iter().position(|x| x.same_channel(&tx)) {
         conns.remove(pos);
-        println!(
-            "WebSocket TX channel removed. Total connections: {}",
-            conns.len()
-        );
+        //println!("WebSocket TX channel removed. Total connections: {}", conns.len());
     } else {
-        println!("WebSocket TX channel not found in shared list for removal.");
+        //println!("WebSocket TX channel not found in shared list for removal.");
     }
 }
 
@@ -216,7 +210,7 @@ async fn send_state_updates(
 ) -> Result<(), axum::Error> {
     while let Some(message) = rx.recv().await {
         if ws_sender.send(message).await.is_err() {
-            println!("Failed to send message to WebSocket client, client disconnected?");
+            //println!("Failed to send message to WebSocket client, client disconnected?");
             break; // Client disconnected
         }
     }
@@ -232,7 +226,7 @@ async fn receive_ws_messages(
         match msg_result {
             Ok(msg) => {
                 if let WsMessage::Close(_) = msg {
-                    println!("Client sent close message.");
+                    //println!("Client sent close message.");
                     break; // Exit loop on close message
                 }
                 // Process other messages if needed
