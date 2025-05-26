@@ -102,9 +102,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
           <div className="flex flex-col sm:flex-row gap-2"> {/* Row 1: Existing Buttons */}
             <button
               onClick={handleRelayToggle}
-              disabled={!roomData?.relay_available || isHeaterDisabled || isOverrideActive}
+              disabled={!roomData?.relay_available || isHeaterDisabled}
               className={`px-6 py-3 text-lg rounded transition-colors duration-200 ${
-                !roomData?.relay_available || isHeaterDisabled || isOverrideActive
+                !roomData?.relay_available || isHeaterDisabled
                   ? 'bg-gray-400 dark:bg-gray-600 text-gray-200 cursor-not-allowed'
                   : roomData?.relay_state
                     ? 'bg-red-600 hover:bg-red-700 text-white'
@@ -115,11 +115,9 @@ const RoomCard: React.FC<RoomCardProps> = ({
                 ? 'Toggle (Unavailable)'
                 : isHeaterDisabled
                   ? 'Heater Disabled'
-                  : isOverrideActive
-                    ? 'Override Active'
-                    : roomData?.relay_state
-                      ? 'Turn Off'
-                      : 'Turn On'}
+                  : roomData?.relay_state
+                    ? 'Turn Off'
+                    : 'Turn On'}
             </button>
 
             <button

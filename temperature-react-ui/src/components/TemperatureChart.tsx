@@ -94,10 +94,9 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     const textColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
 
     const xScalesConfig: any = {
-      min: Date.now() - 3600 * 1000,
+      min: Date.now() - (1 + OFFSET_FRACTION) * 3600 * 1000,
       max: Date.now() + OFFSET_FRACTION * 3600 * 1000,
       type: 'time',
-      offset: true,
       time: {
         minUnit: 'minute', // Don't go below minute precision for ticks
         tooltipFormat: 'HH:mm:ss',
@@ -202,7 +201,6 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     const history = roomData?.temperature_history;
     const now = Date.now();
     let newMinTime: number;
-    let newMaxTime: number;
 
     const chart = chartRef.current;
     if (!chart?.options?.scales?.x) return;
@@ -212,28 +210,18 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     if (hours === 'all') {
       if (history && history.length > 0) {
         newMinTime = history[0].timestamp * 1000;
-        const dataRange = now - newMinTime;
-        const offset = dataRange * OFFSET_FRACTION;
-        newMinTime -= offset;
-        newMaxTime = now + offset;
       } else {
         // No data, but 'All' selected - default to 1 hour
         newMinTime = now - 1 * 60 * 60 * 1000;
-        const offset = (1 * 60 * 60 * 1000) * OFFSET_FRACTION;
-        newMinTime -= offset;
-        newMaxTime = now + offset;
       }
     } else {
       // Specific hour range (e.g., 1h)
       newMinTime = now - hours * 60 * 60 * 1000;
-      const dataRange = now - newMinTime;
-      const offset = dataRange * OFFSET_FRACTION;
-      newMinTime -= offset;
-      newMaxTime = now + offset;
     }
-
-    xScale.min = newMinTime;
-    xScale.max = newMaxTime;
+    const dataRange = now - newMinTime;
+    const offset = dataRange * OFFSET_FRACTION;
+    xScale.min = newMinTime - offset;
+    xScale.max = now + offset;
     chart.update();
   };
 
