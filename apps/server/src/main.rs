@@ -3,13 +3,13 @@ pub mod schedule;
 pub mod web;
 
 use crate::schedule::INTERPOLATE_INTERVALS;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::extract::ws::Message as WsMessage;
 use chrono::{DateTime, Local, Timelike};
 use std::collections::HashMap;
 use std::fs::{rename, File};
 use std::io::{stdout, Write};
-use std::net::{SocketAddr, UdpSocket};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
 // Make WsTx available to web.rs by defining it here and making it public
@@ -37,12 +37,6 @@ const CORRECTION: [f64; 3] = [
     -0.9, // ID 1
     -0.6, // ID 2
 ];
-
-// For diagnostic staleness checks
-const BEDROOM_SENSOR_EXPECTED_IP: &str = "192.168.0.200";
-const BEDROOM_RELAY_EXPECTED_IP: &str = "192.168.0.210"; // This is esp8266-relay0.local
-const KIDS_SENSOR_EXPECTED_IP: &str = "192.168.0.202";
-const KIDS_RELAY_EXPECTED_IP: &str = "192.168.0.212"; // This is esp8266-relay2.local
 
 // Path for Netdata files
 const NETDATA_PATH_PREFIX: &str = "/var/lib/temperature";
@@ -119,14 +113,16 @@ impl Default for RelayConfirmationState {
 }
 
 struct Server {
-    // Key: Source IP string (e.g., "192.168.0.100")
-    last_message_timestamp: HashMap<String, i64>,
+    // FIXME: use single map?
+    // Key: Device ID (u32)
+    last_sensor_message_timestamp: HashMap<u32, i64>,
+    last_relay_message_timestamp: HashMap<u32, i64>,
     // Key: Device ID (u32)
     last_temp_deci: HashMap<u32, f64>, // Storing as corrected temp
-    // Key: Relay's source IP string (e.g. "192.168.0.210")
-    last_relay_on_status: HashMap<String, bool>,
-    // Key: Relay hostname (e.g. "esp8266-relay0.local")
-    relay_confirmations: HashMap<String, RelayConfirmationState>,
+    // Key: Device ID (u32)
+    last_relay_on_status: HashMap<u32, bool>,
+    // Key: Device ID (u32)
+    relay_confirmations: HashMap<u32, RelayConfirmationState>,
 
     controls: Vec<Box<dyn Control>>,
     web_state: Arc<RwLock<ServerState>>,
@@ -149,7 +145,8 @@ impl Server {
         ];
 
         Server {
-            last_message_timestamp: HashMap::new(),
+            last_relay_message_timestamp: HashMap::new(),
+            last_sensor_message_timestamp: HashMap::new(),
             last_temp_deci: HashMap::new(),
             last_relay_on_status: HashMap::new(),
             relay_confirmations: HashMap::new(),
@@ -239,7 +236,8 @@ impl Server {
                     room_state.temperature_history = Vec::new();
                 }
             }
-        } else { // No specific room updated for history, clear all
+        } else {
+            // No specific room updated for history, clear all
             for room_state in state_for_broadcast.rooms.iter_mut() {
                 room_state.temperature_history = Vec::new();
             }
@@ -281,75 +279,35 @@ impl Server {
         let now = Local::now(); // Define now here for reuse
 
         for room in state_write_guard.rooms.iter_mut() {
-            let (sensor_ip_str, relay_ip_str) = match room.id {
-                0 => (Some(BEDROOM_SENSOR_EXPECTED_IP), Some(BEDROOM_RELAY_EXPECTED_IP)),
-                2 => (Some(KIDS_SENSOR_EXPECTED_IP), Some(KIDS_RELAY_EXPECTED_IP)),
-                _ => (None, None), // No specific IP checks for other rooms
-            };
-
             // Sensor availability and current temperature
-            if let Some(ip_s) = sensor_ip_str {
-                room.sensor_available = self
-                    .last_message_timestamp
-                    .get(ip_s)
-                    .map_or(false, |&ts| now.timestamp() - ts < 180);
-            } else {
-                // For rooms without a specific sensor IP, check if we have any recent temperature data for this room.id
-                // and if any sensor reported recently (general sensor activity).
-                room.sensor_available = self.last_temp_deci.contains_key(&room.id) &&
-                                      self.last_message_timestamp.values().any(|&ts| now.timestamp() - ts < 180);
-            }
+            room.sensor_available = self
+                .last_sensor_message_timestamp
+                .get(&room.id)
+                .map_or(false, |&ts| now.timestamp() - ts < 180);
             room.current_temp = self.last_temp_deci.get(&room.id).copied().unwrap_or(0.0);
 
             // Target temperature from schedule and override
-            if (room.id as usize) < INTERPOLATE_INTERVALS.len() {
-                let mut target_temp_val = interpolate_fn_rust(INTERPOLATE_INTERVALS[room.id as usize], now);
-                if let (Some(override_until_ts), Some(override_temp_val)) = (
-                    room.override_until,
-                    room.override_temperature,
-                ) {
-                    if override_until_ts > now.timestamp() {
-                        target_temp_val = override_temp_val;
-                    }
+            let mut target_temp_val =
+                interpolate_fn_rust(INTERPOLATE_INTERVALS[room.id as usize], now);
+            if let (Some(override_until_ts), Some(override_temp_val)) =
+                (room.override_until, room.override_temperature)
+            {
+                if override_until_ts > now.timestamp() {
+                    target_temp_val = override_temp_val;
                 }
-                room.target_temp = target_temp_val;
-            } else {
-                // Default target temp if no schedule for this room ID
-                room.target_temp = room.current_temp; // Or a sensible default like 20.0
             }
+            room.target_temp = target_temp_val;
 
             // Relay availability and state
-            if let Some(ip_r) = relay_ip_str {
-                room.relay_available = self
-                    .last_message_timestamp
-                    .get(ip_r)
-                    .map_or(false, |&ts| now.timestamp() - ts < 180);
-                room.relay_state = self
-                    .last_relay_on_status
-                    .get(ip_r) // last_relay_on_status is keyed by relay's source IP
-                    .copied()
-                    .unwrap_or(false);
-            } else {
-                // For rooms without a specific relay IP, try to infer from RELAYS and relay_confirmations
-                if let Some(hostname_str) = RELAYS.get(room.id as usize) {
-                    // Check if any relay reported recently (general check)
-                    // Renamed ts to ts_val to emphasize it's a value and removed dereferencing.
-                    let any_relay_active = self.last_message_timestamp.values().any(|&ts_val| { 
-                        self.last_relay_on_status.keys().any(|k| self.last_message_timestamp.get(k).map_or(false, |&lts| lts == ts_val)) && now.timestamp() - ts_val < 180
-                    });
-                    
-                    if let Some(confirmation_state) = self.relay_confirmations.get(*hostname_str) {
-                        room.relay_available = any_relay_active; // Simplified: if its hostname is in confirmations & any relay active
-                        room.relay_state = confirmation_state.confirmed_on_state;
-                    } else {
-                        room.relay_available = false;
-                        room.relay_state = false;
-                    }
-                } else {
-                    room.relay_available = false;
-                    room.relay_state = false;
-                }
-            }
+            room.relay_available = self
+                .last_relay_message_timestamp
+                .get(&room.id)
+                .map_or(false, |&ts| now.timestamp() - ts < 180);
+            room.relay_state = self
+                .last_relay_on_status
+                .get(&room.id)
+                .copied()
+                .unwrap_or(false);
         }
 
         drop(state_write_guard); // Release write lock before broadcasting
@@ -358,31 +316,26 @@ impl Server {
     }
 
     async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
-        let client_ip_str = src.ip().to_string();
-        self.last_message_timestamp
-            .insert(client_ip_str.clone(), Local::now().timestamp());
-
-        let device_id = report.info.as_ref().and_then(|i| i.id);
+        let device_id: Option<u32> = report.info.as_ref().and_then(|i| i.id);
 
         let header_status = self.print_header(
-            &client_ip_str,
+            &src.ip().to_string(),
             report.info.as_ref().unwrap_or(&DeviceInfo::default()),
         );
-        if header_status == PrintHeaderStatus::Failure {
-            return Ok(());
-        }
 
         let relay_is_on = report.relay_status();
-        self.last_relay_on_status
-            .insert(client_ip_str.clone(), relay_is_on);
+        if let Some(id) = device_id {
+            if id as usize <= RELAYS.len() {
+                self.last_relay_message_timestamp
+                    .insert(id, Local::now().timestamp());
+                if header_status == PrintHeaderStatus::Failure {
+                    return Ok(());
+                }
 
-        // Update confirmation state
-        if let Some(id_val) = device_id {
-            if let Some(relay_hostname) = RELAYS.get(id_val as usize) {
-                let confirmation_entry = self
-                    .relay_confirmations
-                    .entry(relay_hostname.to_string())
-                    .or_default();
+                self.last_relay_on_status.insert(id, relay_is_on);
+
+                // Update confirmation state
+                let confirmation_entry = self.relay_confirmations.entry(id).or_default();
                 confirmation_entry.unconfirmed = false;
                 confirmation_entry.confirmed_on_state = relay_is_on;
             }
@@ -417,22 +370,21 @@ impl Server {
     }
 
     async fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
-        let client_ip_str = src.ip().to_string();
-
         let header_status = self.print_header(
-            &client_ip_str,
+            &src.ip().to_string(),
             report.info.as_ref().unwrap_or(&DeviceInfo::default()),
         );
+
+        let device_id = report.info.as_ref().and_then(|i| i.id).unwrap_or(u32::MAX); // Use a sentinel if no ID
+
         if header_status == PrintHeaderStatus::Failure {
             // Still update last_message_timestamp even if header fails but message has ID
             if report.info.as_ref().and_then(|i| i.id).is_some() {
-                self.last_message_timestamp
-                    .insert(client_ip_str.clone(), Local::now().timestamp());
+                self.last_sensor_message_timestamp
+                    .insert(device_id, Local::now().timestamp());
             }
             return Ok(());
         }
-
-        let device_id = report.info.as_ref().and_then(|i| i.id).unwrap_or(u32::MAX); // Use a sentinel if no ID
 
         if report.has_sensor_error() {
             let error_name = match SensorError::try_from(report.sensor_error())
@@ -456,8 +408,8 @@ impl Server {
             return Ok(());
         }
 
-        self.last_message_timestamp
-            .insert(client_ip_str.clone(), Local::now().timestamp());
+        self.last_sensor_message_timestamp
+            .insert(device_id, Local::now().timestamp());
 
         let mut temp = report.temperature_deci() as f64 * 0.1;
         let humidity = report.humidity_deci() as f64 * 0.1; // For Netdata
@@ -485,7 +437,6 @@ impl Server {
         }
         // Drop the read lock as soon as possible
         drop(web_state_lock);
-
 
         if (device_id as usize) < INTERPOLATE_INTERVALS.len() {
             // Check if ID is within manageable range
@@ -536,10 +487,8 @@ impl Server {
                 // Send the command
                 match set_relay(relay_hostname, mode_on & !is_disabled, delay_ms) {
                     Ok(_) => {
-                        let confirmation_state = self
-                            .relay_confirmations
-                            .entry(relay_hostname.to_string())
-                            .or_default();
+                        let confirmation_state =
+                            self.relay_confirmations.entry(device_id).or_default();
 
                         // C++ Relay::set_relay logging part 2: Print status based on confirmation
                         if confirmation_state.unconfirmed {
@@ -644,96 +593,6 @@ impl Server {
         self.update_and_broadcast_web_state(Some(device_id)).await; // Pass the device_id of the sensor
         Ok(())
     }
-
-    fn format_diag(&self, src: SocketAddr) -> Result<()> {
-        let current_time = Local::now();
-        println!(
-            "{} Diag request from {}",
-            current_time.format("%Y-%m-%d %H:%M:%S"),
-            src
-        );
-
-        let temp0_str = self
-            .last_temp_deci
-            .get(&0)
-            .map_or_else(|| "N/A".to_string(), |t| format!("{:.1}", t));
-        let relay0_on_str = self
-            .last_relay_on_status
-            .get(BEDROOM_RELAY_EXPECTED_IP)
-            .map_or_else(|| "", |&on| if on { " [ON]" } else { "" });
-
-        let temp2_str = self
-            .last_temp_deci
-            .get(&2)
-            .map_or_else(|| "N/A".to_string(), |t| format!("{:.1}", t));
-        let relay2_on_str = self
-            .last_relay_on_status
-            .get(KIDS_RELAY_EXPECTED_IP)
-            .map_or_else(|| "", |&on| if on { " [ON]" } else { "" });
-
-        let mut diag_message = format!(
-            "Temp0: {}{}, Temp2: {}{}",
-            temp0_str, relay0_on_str, temp2_str, relay2_on_str
-        );
-
-        let now_ts = current_time.timestamp();
-        let staleness_threshold = 180; // 3 minutes
-
-        if now_ts
-            - self
-                .last_message_timestamp
-                .get(BEDROOM_SENSOR_EXPECTED_IP)
-                .cloned()
-                .unwrap_or(0)
-            > staleness_threshold
-        {
-            diag_message += "\nFAIL: Bedroom sensor";
-        } else if now_ts
-            - self
-                .last_message_timestamp
-                .get(BEDROOM_RELAY_EXPECTED_IP)
-                .cloned()
-                .unwrap_or(0)
-            > staleness_threshold
-        {
-            diag_message += "\nFAIL: Bedroom relay";
-        }
-
-        if now_ts
-            - self
-                .last_message_timestamp
-                .get(KIDS_SENSOR_EXPECTED_IP)
-                .cloned()
-                .unwrap_or(0)
-            > staleness_threshold
-        {
-            diag_message += "\nFAIL: Kids sensor";
-        } else if now_ts
-            - self
-                .last_message_timestamp
-                .get(KIDS_RELAY_EXPECTED_IP)
-                .cloned()
-                .unwrap_or(0)
-            > staleness_threshold
-        {
-            diag_message += "\nFAIL: Kids relay";
-        }
-
-        // Send the diagnostic message back to src
-        // The C++ Relay::send_message is more complex (hostname resolution).
-        // Here, src is already a SocketAddr.
-        let udp_socket = UdpSocket::bind("0.0.0.0:0") // Bind to any available local port
-            .context("Failed to bind UDP socket for diagnostics")?;
-
-        match udp_socket.send_to(diag_message.as_bytes(), src) {
-            Ok(_) => { /* Successfully sent */ }
-            Err(e) => {
-                print!(" [NDIAG_SEND_ERR: {}] ", e); // C++ prints "[NDIAG]"
-                stdout().flush()?;
-            }
-        }
-        Ok(())
-    }
 }
 
 impl MessageHandler<DeviceMessage> for Server {
@@ -749,9 +608,6 @@ impl MessageHandler<DeviceMessage> for Server {
             known_message_component_found = true;
         } else if let Some(relay_report) = msg.relay.as_ref() {
             self.new_relay_report(src, relay_report).await?;
-            known_message_component_found = true;
-        } else if msg.format_diag() {
-            self.format_diag(src)?;
             known_message_component_found = true;
         }
 

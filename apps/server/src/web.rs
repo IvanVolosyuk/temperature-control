@@ -330,17 +330,25 @@ async fn control_relay(
     let relay_hostname = match request.room_id {
         0 => "esp8266-relay0.local", // Bedroom
         2 => "esp8266-relay2.local", // Kids Bedroom
-        _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" })),
+        _ => {
+            return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" }))
+        }
     };
 
     match set_relay(relay_hostname, request.state, 0) {
         Ok(_) => {
             let mut server_state_lock = state.server_state.write().await;
-            if let Some(room) = server_state_lock.rooms.iter_mut().find(|r| r.id == request.room_id) {
+            if let Some(room) = server_state_lock
+                .rooms
+                .iter_mut()
+                .find(|r| r.id == request.room_id)
+            {
                 room.relay_state = request.state;
             } else {
                 // This case should ideally not happen if room_id validation is correct
-                return axum::Json(serde_json::json!({ "success": false, "error": "Room ID not found after relay operation" }));
+                return axum::Json(
+                    serde_json::json!({ "success": false, "error": "Room ID not found after relay operation" }),
+                );
             }
             axum::Json(serde_json::json!({ "success": true }))
         }
@@ -353,11 +361,17 @@ async fn disable_heater(
     Json(request): Json<DisableHeaterRequest>,
 ) -> axum::Json<serde_json::Value> {
     let mut server_state_lock = state.server_state.write().await;
-    
+
     let room_id_to_find = request.room_id;
-    let room_state_arc = match server_state_lock.rooms.iter_mut().find(|r| r.id == room_id_to_find) {
+    let room_state_arc = match server_state_lock
+        .rooms
+        .iter_mut()
+        .find(|r| r.id == room_id_to_find)
+    {
         Some(room) => room,
-        None => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" })),
+        None => {
+            return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" }))
+        }
     };
 
     if request.disable {
@@ -369,7 +383,11 @@ async fn disable_heater(
             let relay_hostname = match room_id_to_find {
                 0 => "esp8266-relay0.local", // Bedroom
                 2 => "esp8266-relay2.local", // Kids Bedroom
-                _ => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID for relay" })), // Should not happen if find was successful
+                _ => {
+                    return axum::Json(
+                        serde_json::json!({ "success": false, "error": "Invalid room ID for relay" }),
+                    )
+                } // Should not happen if find was successful
             };
             if let Err(e) = set_relay(relay_hostname, false, 0) {
                 return axum::Json(serde_json::json!({ "success": false, "error": e.to_string() }));
@@ -389,9 +407,15 @@ async fn override_temperature_handler(
     let mut server_state_lock = state.server_state.write().await;
 
     let room_id_to_find = request.room_id;
-    let room_state_arc = match server_state_lock.rooms.iter_mut().find(|r| r.id == room_id_to_find) {
+    let room_state_arc = match server_state_lock
+        .rooms
+        .iter_mut()
+        .find(|r| r.id == room_id_to_find)
+    {
         Some(room) => room,
-        None => return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" })),
+        None => {
+            return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" }))
+        }
     };
 
     if let Some(temp_val) = request.temperature {
