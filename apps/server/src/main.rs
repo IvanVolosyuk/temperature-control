@@ -198,7 +198,7 @@ impl Server {
         current_timestamp: i64,
         temp: f64,
         target_temp: f64,
-        header_on: bool,
+        heater_on: bool,
         is_disabled: bool,
     ) -> Result<()> {
         //Update temperature history in web state
@@ -213,7 +213,7 @@ impl Server {
             timestamp: current_timestamp,
             temperature: temp,
             target: target_temp,
-            heater_on: header_on,
+            heater_on,
             is_disabled,
         });
 
@@ -386,6 +386,30 @@ impl Server {
             .disabled_until
             .map(|until| current_timestamp < until)
             .unwrap_or(false);
+    }
+
+    fn serrialize_history_point(device_id: u32, prev_timestamp: u32, point: TemperaturePoint) -> Vec<u32> {
+        // Bit layout:
+        // [sec:2][min:2][target_temp:15][temp:9][disabled][on][dev][extra_timestamp_flag]
+        // [optional timestamp:32]
+        // 9 bits
+        let temp : u32 = ((point.temperature * 10. + 0.5) as u32).clamp(0, 511);
+        // 15 bits
+        let target_bits : u32 = ((point.target * 1024.) as u32).clamp(0, 16384);
+        let dt : u32 = 30 + (point.timestamp as u32) - prev_timestamp;
+        let min : u32 = dt / 60;
+        let sec : u32 = dt - min * 60;
+        let dev_bit : u32 = if device_id != 0 { 2 } else { 0 };
+        let on_bit : u32 = if point.heater_on { 4 } else { 0 };
+        let disabled_bit : u32 = if point.is_disabled { 8 } else { 0 };
+        let partial = dev_bit | on_bit | disabled_bit | (temp << 4 | (target_bits << 13));
+        if min < 5 && sec >= 29 && sec <= 32 {
+            let min_bits = min - 1;
+            let sec_bits = sec - 29;
+            vec!(partial | (min_bits << 28) | (sec_bits) << 30)
+        } else {
+            vec!(1 | partial, point.timestamp as u32 )
+        }
     }
 
     async fn new_sensor_report(&mut self, src: SocketAddr, report: &SensorReport) -> Result<()> {
