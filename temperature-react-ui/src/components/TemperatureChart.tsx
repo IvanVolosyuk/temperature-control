@@ -171,7 +171,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
         padding: {
           top: 0,
           right: 0,
-          bottom: 10,
+          bottom: 50,
           left: 0
         }
       },
@@ -285,14 +285,15 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
   };
 
   console.log("new chart created with new data")
+  const bclass = "button-chart-zoom px-3 py-1 text-sm"
   return (
     <>
       <div className="flex justify-between items-center mb-2">
         <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">Temperature History</h3>
         <div className="chart-zoom-buttons flex gap-1">
-          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom(10)}>10m</button>
-          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom(120)}>2h</button>
-          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom('all')}>All</button>
+          <button type="button" className={bclass} onClick={() => handleZoom(10)}>10m</button>
+          <button type="button" className={bclass} onClick={() => handleZoom(120)}>2h</button>
+          <button type="button" className={bclass} onClick={() => handleZoom('all')}>All</button>
         </div>
       </div>
       <div className="chart-container relative w-full h-[300px] overflow-hidden">
