@@ -9,7 +9,7 @@ import './index.css';
 
 // Constants
 const RECONNECT_DELAY_MS = 5000; // 5 seconds
-const MAX_HISTORY_POINTS = 48 * 60 * 60; // Approx 48 hours of data at 1s interval, adjust as needed
+//const MAX_HISTORY_POINTS = 48 * 60 * 60; // Approx 48 hours of data at 1s interval, adjust as needed
 
 function App() {
   const [roomsData, setRoomsData] = useState<RoomStateWithId[] | null>(null); // New state for rooms
@@ -42,7 +42,7 @@ function App() {
     incoming: TemperaturePoint[] = []
   ): TemperaturePoint[] => {
     if (!incoming || incoming.length === 0) return existing;
-    if (!existing || existing.length === 0) return incoming.slice(-MAX_HISTORY_POINTS);
+    if (!existing || existing.length === 0) return incoming; // .slice(-MAX_HISTORY_POINTS);
 
     const combined = [...existing];
     const existingTimestamps = new Set(existing.map(p => p.timestamp));
@@ -53,8 +53,8 @@ function App() {
       }
     }
     // Sort by timestamp just in case there are out-of-order points from merging
-    combined.sort((a, b) => a.timestamp - b.timestamp);
-    return combined.slice(-MAX_HISTORY_POINTS);
+    //combined.sort((a, b) => a.timestamp - b.timestamp);
+    return combined; //.slice(-MAX_HISTORY_POINTS);
   }, []);
 
 

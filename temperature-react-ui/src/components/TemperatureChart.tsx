@@ -116,6 +116,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
           const move = newLastTimestamp + offset - currentXMax;
           chart.options.scales.x.min = currentXMin + move;
           chart.options.scales.x.max = currentXMax + move;
+          console.log("Autoscroll update");
           chart.update();
         }
       }
@@ -130,8 +131,8 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     const textColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
 
     const xScalesConfig: any = {
-      min: Date.now() - (1 + OFFSET_FRACTION) * 3600 * 1000,
-      max: Date.now() + OFFSET_FRACTION * 3600 * 1000,
+      min: Date.now() - (1 + OFFSET_FRACTION) * 2 * 3600 * 1000,
+      max: Date.now() + OFFSET_FRACTION * 2 * 3600 * 1000,
       type: 'time',
       time: {
         minUnit: 'minute', // Don't go below minute precision for ticks
@@ -245,7 +246,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     };
   }, [roomData, isDarkMode]);
 
-  const handleZoom = (hours: number | 'all') => {
+  const handleZoom = (minutes: number | 'all') => {
     const history = roomData?.temperature_history;
     const now = Date.now();
     let newMinTime: number;
@@ -255,7 +256,7 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
 
     const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
 
-    if (hours === 'all') {
+    if (minutes === 'all') {
       if (history && history.length > 0) {
         newMinTime = history[0].timestamp * 1000;
       } else {
@@ -264,21 +265,24 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
       }
     } else {
       // Specific hour range (e.g., 1h)
-      newMinTime = now - hours * 60 * 60 * 1000;
+      newMinTime = now - minutes * 60 * 1000;
     }
     const dataRange = now - newMinTime;
     const offset = dataRange * OFFSET_FRACTION;
     xScale.min = newMinTime - offset;
     xScale.max = now + offset;
+    console.log("Zoom update");
     chart.update();
   };
 
+  console.log("new chart created with new data")
   return (
     <>
       <div className="flex justify-between items-center mb-2">
         <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">Temperature History</h3>
         <div className="chart-zoom-buttons flex gap-1">
-          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom(1)}>1h</button>
+          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom(10)}>10m</button>
+          <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom(120)}>2h</button>
           <button type="button" className="button-chart-zoom px-3 py-1 text-sm" onClick={() => handleZoom('all')}>All</button>
         </div>
       </div>
