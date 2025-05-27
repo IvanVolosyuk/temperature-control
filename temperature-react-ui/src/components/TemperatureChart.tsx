@@ -129,10 +129,19 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
   const generateChartOptions = (currentIsDarkMode: boolean): ChartOptions<'line'> => {
     const gridColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     const textColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
+    const chart = chartRef.current;
+    var xMin = Date.now() - (1 + OFFSET_FRACTION) * 2 * 3600 * 1000;
+    var xMax = Date.now() + OFFSET_FRACTION * 2 * 3600 * 1000
+
+    if (chart && chart.options?.scales?.x) {
+      const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
+      xMin = xScale.min as number;
+      xMax = xScale.max as number;
+    }
 
     const xScalesConfig: any = {
-      min: Date.now() - (1 + OFFSET_FRACTION) * 2 * 3600 * 1000,
-      max: Date.now() + OFFSET_FRACTION * 2 * 3600 * 1000,
+      min: xMin,
+      max: xMax,
       type: 'time',
       time: {
         minUnit: 'minute', // Don't go below minute precision for ticks
