@@ -11,7 +11,9 @@ use std::io::{stdout, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{collections::HashMap, path::Path};
-use tokio::sync::{mpsc, RwLock};
+use tokio::{
+    fs::File as TokioFile, fs::OpenOptions, io::AsyncWriteExt, sync::{mpsc, RwLock},
+};
 // Make WsTx available to web.rs by defining it here and making it public
 pub type WsTx = mpsc::Sender<WsMessage>;
 use crate::web::{create_web_server, ServerState, TemperaturePoint};
@@ -113,6 +115,9 @@ struct Server {
     controls: Vec<Box<dyn Control>>,
     web_state: Arc<RwLock<ServerState>>,
     ws_connections: Arc<RwLock<Vec<WsTx>>>, // WsTx is now defined above
+    binary_state_file: Option<TokioFile>,
+    prev_timestamp_device0: u32,
+    prev_timestamp_device2: u32,
 }
 
 #[derive(PartialEq, Debug)]
@@ -154,11 +159,30 @@ impl Server {
             ServerState::default()
         };
 
+        let binary_file_handle = match OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("server_state.bin")
+            .await
+        {
+            Ok(file) => Some(file),
+            Err(e) => {
+                eprintln!(
+                    "Failed to open or create server_state.bin: {}. Binary logging will be disabled.",
+                    e
+                );
+                None
+            }
+        };
+
         Server {
             hardware_states: HashMap::new(),
             controls,
             web_state: Arc::new(RwLock::new(web_state)),
             ws_connections: Arc::new(RwLock::new(Vec::new())),
+            binary_state_file: binary_file_handle,
+            prev_timestamp_device0: 0,
+            prev_timestamp_device2: 0,
         }
     }
 
@@ -193,7 +217,7 @@ impl Server {
     }
 
     async fn update_history(
-        &self,
+        &mut self, // Changed to &mut self
         device_id: u32,
         current_timestamp: i64,
         temp: f64,
@@ -216,13 +240,63 @@ impl Server {
             heater_on,
             is_disabled,
         });
+        drop(web_state_lock);
 
-        // Keep only last 48 hours of data
-        let cutout = current_timestamp - 3600 * 48;
-        room_state
-            .temperature_history
-            .retain(|point| point.timestamp >= cutout);
+        let new_point_for_binary = TemperaturePoint {
+            timestamp: current_timestamp,
+            temperature: temp,
+            target: target_temp,
+            heater_on,
+            is_disabled,
+        };
+
+        // Append to binary state file if device is 0 or 2
+        if device_id == 0 || device_id == 2 {
+            if let Err(e) = self.append_to_binary_state(device_id, new_point_for_binary).await {
+                eprintln!("Error appending to binary state for device {}: {}", device_id, e);
+                // Decide if this error should halt further operations or just be logged
+            }
+        }
+
         return Ok(());
+    }
+
+    async fn append_to_binary_state(&mut self, device_id: u32, point: TemperaturePoint) -> Result<()> {
+        if device_id != 0 && device_id != 2 {
+            return Ok(()); // Only log for device 0 and 2
+        }
+
+        let prev_timestamp = if device_id == 0 {
+            self.prev_timestamp_device0
+        } else {
+            self.prev_timestamp_device2
+        };
+
+        let serialized_data = Self::serialize_history_point(device_id, prev_timestamp, point.clone());
+
+        if let Some(file) = self.binary_state_file.as_mut() {
+            for val in serialized_data {
+                // Write each u32 as little-endian bytes
+                if let Err(e) = file.write_u32_le(val).await {
+                    eprintln!(
+                        "Failed to write to server_state.bin for device {}: {}. Further binary logging might be affected.",
+                        device_id,
+                        e
+                    );
+                    // Optionally, could set self.binary_state_file to None here to stop further attempts
+                    return Err(e.into()); // Propagate the error
+                }
+            }
+            // Update the previous timestamp for the device
+            if device_id == 0 {
+                self.prev_timestamp_device0 = point.timestamp as u32;
+            } else {
+                self.prev_timestamp_device2 = point.timestamp as u32;
+            }
+        } else {
+            // eprintln!("Binary state file not available for device {}", device_id); // Optional: log that file is not open
+        }
+        Ok(())
     }
 
     async fn broadcast_updates(&self, updated_room_id_for_history: Option<u32>) {
@@ -388,14 +462,14 @@ impl Server {
             .unwrap_or(false);
     }
 
-    fn serrialize_history_point(device_id: u32, prev_timestamp: u32, point: TemperaturePoint) -> Vec<u32> {
+    fn serialize_history_point(device_id: u32, prev_timestamp: u32, point: TemperaturePoint) -> Vec<u32> {
         // Bit layout:
         // [sec:2][min:2][target_temp:15][temp:9][disabled][on][dev][extra_timestamp_flag]
         // [optional timestamp:32]
         // 9 bits
         let temp : u32 = ((point.temperature * 10. + 0.5) as u32).clamp(0, 511);
         // 15 bits
-        let target_bits : u32 = ((point.target * 1024.) as u32).clamp(0, 16384);
+        let target_bits : u32 = ((point.target * 1024.) as u32).clamp(0, 32767);
         let dt : u32 = 30 + (point.timestamp as u32) - prev_timestamp;
         let min : u32 = dt / 60;
         let sec : u32 = dt - min * 60;
