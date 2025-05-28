@@ -10,9 +10,9 @@ use std::fs::{rename, File};
 use std::io::{stdout, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::{collections::HashMap, path::Path};
+use std::collections::HashMap;
 use tokio::{
-    fs::{metadata, File as TokioFile, OpenOptions}, io::{AsyncReadExt, AsyncWriteExt}, sync::{mpsc, RwLock}
+    fs::{File as TokioFile, OpenOptions}, io::{AsyncReadExt, AsyncWriteExt}, sync::{mpsc, RwLock}
 };
 // Make WsTx available to web.rs by defining it here and making it public
 pub type WsTx = mpsc::Sender<WsMessage>;
@@ -42,9 +42,6 @@ const CORRECTION: [f64; 3] = [
 
 // Path for Netdata files
 const NETDATA_PATH_PREFIX: &str = "/var/lib/temperature";
-
-// Path for saving server state
-const SERVER_STATE_FILE: &str = "server_state.json";
 
 fn linear_rust(val_start: f64, val_end: f64, x_start: f64, x_end: f64, x_target: f64) -> f64 {
     if x_end == x_start {
@@ -149,27 +146,21 @@ impl Server {
             }
             Ok(None) => {
                 println!(
-                    "Binary state file {} not found or empty. Falling back to JSON.",
+                    "Binary state file {} not found or empty. Initializing with default state.",
                     server_state_bin_path
                 );
-                // Fallback to JSON loading and potential migration
-                let (web_state_from_json, p_ts0, p_ts2) = 
-                    Self::load_from_json_and_migrate(server_state_bin_path).await;
-                final_web_state = web_state_from_json;
-                final_prev_timestamp_device0 = p_ts0;
-                final_prev_timestamp_device2 = p_ts2;
+                final_web_state = ServerState::default();
+                final_prev_timestamp_device0 = 0;
+                final_prev_timestamp_device2 = 0;
             }
             Err(e) => {
                 eprintln!(
-                    "Error reading binary state file {}: {}. Falling back to JSON.",
+                    "Error reading binary state file {}: {}. Initializing with default state.",
                     server_state_bin_path, e
                 );
-                // Fallback to JSON loading and potential migration
-                let (web_state_from_json, p_ts0, p_ts2) = 
-                    Self::load_from_json_and_migrate(server_state_bin_path).await;
-                final_web_state = web_state_from_json;
-                final_prev_timestamp_device0 = p_ts0;
-                final_prev_timestamp_device2 = p_ts2;
+                final_web_state = ServerState::default();
+                final_prev_timestamp_device0 = 0;
+                final_prev_timestamp_device2 = 0;
             }
         }
 
@@ -200,157 +191,6 @@ impl Server {
             prev_timestamp_device2: final_prev_timestamp_device2,
         }
     }
-
-    // Helper function to encapsulate JSON loading and migration logic
-    async fn load_from_json_and_migrate(server_state_bin_path: &str) -> (ServerState, u32, u32) {
-        let mut web_state_loaded_from_json = false;
-        let web_state_from_json = if Path::new(SERVER_STATE_FILE).exists() {
-            match tokio::fs::read_to_string(SERVER_STATE_FILE).await {
-                Ok(data) => match serde_json::from_str(&data) {
-                    Ok(state) => {
-                        web_state_loaded_from_json = true;
-                        state
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Failed to parse server state from {}: {}. Using default.",
-                            SERVER_STATE_FILE, e
-                        );
-                        ServerState::default()
-                    }
-                },
-                Err(e) => {
-                    eprintln!(
-                        "Failed to read server state from {}: {}. Using default.",
-                        SERVER_STATE_FILE, e
-                    );
-                    ServerState::default()
-                }
-            }
-        } else {
-            println!("JSON state file {} not found. Using default state.", SERVER_STATE_FILE);
-            ServerState::default()
-        };
-
-        let mut migrated_prev_timestamp_device0: u32 = 0;
-        let mut migrated_prev_timestamp_device2: u32 = 0;
-
-        let mut perform_migration = false;
-        match metadata(server_state_bin_path).await {
-            Ok(md) => {
-                if md.len() == 0 {
-                    perform_migration = true;
-                }
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                perform_migration = true;
-            }
-            Err(e) => {
-                eprintln!(
-                    "Error checking metadata for {}: {}. Migration check failed.",
-                    server_state_bin_path, e
-                );
-            }
-        }
-
-        if web_state_loaded_from_json && perform_migration {
-            println!("Attempting one-off migration from {} to {}.", SERVER_STATE_FILE, server_state_bin_path);
-            let mut points_to_migrate: Vec<(u32, TemperaturePoint)> = Vec::new();
-
-            for room_state in web_state_from_json.rooms.iter() {
-                if room_state.id == 0 || room_state.id == 2 {
-                    for point in room_state.temperature_history.iter() {
-                        points_to_migrate.push((room_state.id, point.clone()));
-                    }
-                }
-            }
-
-            if !points_to_migrate.is_empty() {
-                points_to_migrate.sort_by_key(|k| k.1.timestamp);
-
-                match OpenOptions::new()
-                    .write(true)
-                    .create(true)
-                    .truncate(true)
-                    .open(server_state_bin_path)
-                    .await
-                {
-                    Ok(mut migration_file) => {
-                        let mut temp_prev_ts0_migration: u32 = 0;
-                        let mut temp_prev_ts2_migration: u32 = 0;
-                        let mut records_migrated = 0;
-
-                        for (device_id, point) in points_to_migrate.iter() {
-                            let prev_timestamp_for_device = if *device_id == 0 {
-                                temp_prev_ts0_migration
-                            } else {
-                                temp_prev_ts2_migration
-                            };
-                            let serialized_data = Self::serialize_history_point(
-                                *device_id,
-                                prev_timestamp_for_device,
-                                point.clone(),
-                            );
-                            for val in serialized_data {
-                                if let Err(e) = migration_file.write_u32_le(val).await {
-                                    eprintln!(
-                                        "Migration: Failed to write to {} for device {}: {}. Migration aborted.",
-                                        server_state_bin_path, device_id, e
-                                    );
-                                    records_migrated = 0;
-                                    break;
-                                }
-                            }
-                            if migration_file.flush().await.is_err() { 
-                                eprintln!("Migration: Failed to flush {}. Migration aborted.", server_state_bin_path);
-                                records_migrated = 0;
-                                break;
-                            }
-                            if *device_id == 0 {
-                                temp_prev_ts0_migration = point.timestamp as u32;
-                            } else {
-                                temp_prev_ts2_migration = point.timestamp as u32;
-                            }
-                            records_migrated += 1;
-                        }
-
-                        if records_migrated > 0 {
-                            migrated_prev_timestamp_device0 = temp_prev_ts0_migration;
-                            migrated_prev_timestamp_device2 = temp_prev_ts2_migration;
-                            println!(
-                                "Migration completed. {} records written to {}. Last timestamps: Dev0={}, Dev2={}",
-                                records_migrated,
-                                server_state_bin_path,
-                                migrated_prev_timestamp_device0,
-                                migrated_prev_timestamp_device2
-                            );
-                        } else if !points_to_migrate.is_empty() {
-                            eprintln!("Migration failed to write any records.");
-                        }
-                        drop(migration_file);
-                    }
-                    Err(e) => {
-                        eprintln!(
-                            "Failed to open {} for migration writing: {}. Migration skipped.",
-                            server_state_bin_path, e
-                        );
-                    }
-                }
-            } else {
-                println!("No historical data for devices 0 or 2 found in {}. Migration not needed.", SERVER_STATE_FILE);
-            }
-        } else if web_state_loaded_from_json && !perform_migration {
-            println!(
-                "{} already exists and is not empty. Migration from {} skipped.",
-                server_state_bin_path, SERVER_STATE_FILE
-            );
-        } else if !web_state_loaded_from_json {
-            // This case is hit if JSON file doesn't exist or fails to parse, and binary also failed/was empty.
-            println!("No JSON state loaded from {}. Initializing with default state and zeroed prev_timestamps.", SERVER_STATE_FILE);
-        }
-        (web_state_from_json, migrated_prev_timestamp_device0, migrated_prev_timestamp_device2)
-    }
-
 
     fn print_header(&self, client_address_str: &str, info: &DeviceInfo) -> PrintHeaderStatus {
         let device_id = match info.id {
@@ -559,20 +399,6 @@ impl Server {
         self.broadcast_updates(updated_device_id_for_history).await;
     }
 
-    async fn save_web_state(&self) -> Result<()> {
-        let state_guard = self.web_state.read().await;
-        match serde_json::to_string_pretty(&*state_guard) {
-            Ok(json_data) => {
-                tokio::fs::write(SERVER_STATE_FILE, json_data).await?;
-                // Optionally print a success message, or log it
-                // println!("Server state saved to {}", SERVER_STATE_FILE);
-            }
-            Err(e) => {
-                eprintln!("Failed to serialize server state for saving: {}", e);
-            }
-        }
-        Ok(())
-    }
     async fn new_relay_report(&mut self, src: SocketAddr, report: &RelayReport) -> Result<()> {
         let device_id: Option<u32> = report.info.as_ref().and_then(|i| i.id);
 
@@ -608,9 +434,6 @@ impl Server {
         );
         stdout().flush()?;
         self.update_and_broadcast_web_state(None).await; // Relay reports don't generate new temp points directly
-        if let Err(e) = self.save_web_state().await {
-            eprintln!("Error saving server state after relay report: {}", e);
-        }
         Ok(())
     }
 
@@ -998,9 +821,6 @@ impl Server {
                     // self.update_history is called before this, so web_state has latest point
         stdout().flush()?;
         self.update_and_broadcast_web_state(Some(device_id)).await; // Pass the device_id of the sensor
-        if let Err(e) = self.save_web_state().await {
-            eprintln!("Error saving server state after sensor report: {}", e);
-        }
         Ok(())
     }
 }
