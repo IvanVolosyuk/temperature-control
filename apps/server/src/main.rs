@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::{collections::HashMap, path::Path};
 use tokio::{
-    fs::File as TokioFile, fs::OpenOptions, io::AsyncWriteExt, sync::{mpsc, RwLock},
+    fs::{metadata, File as TokioFile, OpenOptions}, io::AsyncWriteExt, sync::{mpsc, RwLock}
 };
 // Make WsTx available to web.rs by defining it here and making it public
 pub type WsTx = mpsc::Sender<WsMessage>;
@@ -135,10 +135,14 @@ impl Server {
             Box::new(PWMControl::new(-0.36)),
         ];
 
-        let web_state = if Path::new(SERVER_STATE_FILE).exists() {
+        let mut web_state_loaded_from_json = false;
+        let web_state_from_json = if Path::new(SERVER_STATE_FILE).exists() {
             match tokio::fs::read_to_string(SERVER_STATE_FILE).await {
                 Ok(data) => match serde_json::from_str(&data) {
-                    Ok(state) => state,
+                    Ok(state) => {
+                        web_state_loaded_from_json = true;
+                        state
+                    }
                     Err(e) => {
                         eprintln!(
                             "Failed to parse server state from {}: {}. Using default.",
@@ -159,17 +163,143 @@ impl Server {
             ServerState::default()
         };
 
+        let mut migrated_prev_timestamp_device0: u32 = 0;
+        let mut migrated_prev_timestamp_device2: u32 = 0;
+
+        // Check if server_state.bin is new or empty for migration
+        let server_state_bin_path = "server_state.bin";
+        let mut perform_migration = false;
+        match metadata(server_state_bin_path).await {
+            Ok(md) => {
+                if md.len() == 0 {
+                    perform_migration = true;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                perform_migration = true; // File doesn't exist, so it's "new"
+            }
+            Err(e) => {
+                eprintln!(
+                    "Error checking metadata for {}: {}. Migration check failed.",
+                    server_state_bin_path, e
+                );
+            }
+        }
+
+        if web_state_loaded_from_json && perform_migration {
+            println!("Attempting one-off migration from {} to {}.", SERVER_STATE_FILE, server_state_bin_path);
+            let mut points_to_migrate: Vec<(u32, TemperaturePoint)> = Vec::new();
+
+            for room_state in web_state_from_json.rooms.iter() {
+                if room_state.id == 0 || room_state.id == 2 {
+                    for point in room_state.temperature_history.iter() {
+                        points_to_migrate.push((room_state.id, point.clone()));
+                    }
+                }
+            }
+
+            if !points_to_migrate.is_empty() {
+                points_to_migrate.sort_by_key(|k| k.1.timestamp);
+
+                match OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true) // Truncate to ensure a fresh write for migration
+                    .open(server_state_bin_path)
+                    .await
+                {
+                    Ok(mut migration_file) => {
+                        let mut temp_prev_ts0_migration: u32 = 0;
+                        let mut temp_prev_ts2_migration: u32 = 0;
+                        let mut records_migrated = 0;
+
+                        for (device_id, point) in points_to_migrate.iter() {
+                            let prev_timestamp_for_device = if *device_id == 0 {
+                                temp_prev_ts0_migration
+                            } else {
+                                temp_prev_ts2_migration
+                            };
+
+                            let serialized_data = Self::serialize_history_point(
+                                *device_id,
+                                prev_timestamp_for_device,
+                                point.clone(),
+                            );
+
+                            for val in serialized_data {
+                                if let Err(e) = migration_file.write_u32_le(val).await {
+                                    eprintln!(
+                                        "Migration: Failed to write to {} for device {}: {}. Migration aborted.",
+                                        server_state_bin_path, device_id, e
+                                    );
+                                    // In case of error, we might want to stop or clean up, but for now, just log and break.
+                                    // The main binary_state_file will be opened in append mode later, potentially to an incomplete migration file.
+                                    // A more robust solution might delete the partially migrated file.
+                                    records_migrated = 0; // Indicate failure
+                                    break;
+                                }
+                            }
+                            if migration_file.flush().await.is_err() { // Ensure data is written before updating prev_timestamp
+                                eprintln!("Migration: Failed to flush {}. Migration aborted.", server_state_bin_path);
+                                records_migrated = 0;
+                                break;
+                            }
+
+                            if *device_id == 0 {
+                                temp_prev_ts0_migration = point.timestamp as u32;
+                            } else {
+                                temp_prev_ts2_migration = point.timestamp as u32;
+                            }
+                            records_migrated += 1;
+                        }
+
+                        if records_migrated > 0 {
+                            migrated_prev_timestamp_device0 = temp_prev_ts0_migration;
+                            migrated_prev_timestamp_device2 = temp_prev_ts2_migration;
+                            println!(
+                                "Migration completed. {} records written to {}. Last timestamps: Dev0={}, Dev2={}",
+                                records_migrated,
+                                server_state_bin_path,
+                                migrated_prev_timestamp_device0,
+                                migrated_prev_timestamp_device2
+                            );
+                        } else if !points_to_migrate.is_empty() { // Check if points_to_migrate was not empty to begin with
+                            eprintln!("Migration failed to write any records.");
+                        }
+                        // Explicitly drop/close the migration file handle
+                        drop(migration_file);
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to open {} for migration writing: {}. Migration skipped.",
+                            server_state_bin_path, e
+                        );
+                    }
+                }
+            } else {
+                println!("No historical data for devices 0 or 2 found in {}. Migration not needed.", SERVER_STATE_FILE);
+            }
+        } else if web_state_loaded_from_json && !perform_migration {
+            println!(
+                "{} already exists and is not empty. Migration from {} skipped.",
+                server_state_bin_path, SERVER_STATE_FILE
+            );
+        } else if !web_state_loaded_from_json {
+            println!("No JSON state loaded from {}. Migration skipped.", SERVER_STATE_FILE);
+        }
+
+        // Open the binary state file for normal append operations (or create if it doesn't exist after migration attempt)
         let binary_file_handle = match OpenOptions::new()
             .append(true)
             .create(true)
-            .open("server_state.bin")
+            .open(server_state_bin_path) // Use the same path
             .await
         {
             Ok(file) => Some(file),
             Err(e) => {
                 eprintln!(
-                    "Failed to open or create server_state.bin: {}. Binary logging will be disabled.",
-                    e
+                    "Failed to open or create {} for appending: {}. Binary logging will be disabled.",
+                    server_state_bin_path, e
                 );
                 None
             }
@@ -178,11 +308,11 @@ impl Server {
         Server {
             hardware_states: HashMap::new(),
             controls,
-            web_state: Arc::new(RwLock::new(web_state)),
+            web_state: Arc::new(RwLock::new(web_state_from_json)), // Use the state loaded (or defaulted)
             ws_connections: Arc::new(RwLock::new(Vec::new())),
             binary_state_file: binary_file_handle,
-            prev_timestamp_device0: 0,
-            prev_timestamp_device2: 0,
+            prev_timestamp_device0: migrated_prev_timestamp_device0, // Initialize with migrated values
+            prev_timestamp_device2: migrated_prev_timestamp_device2, // Initialize with migrated values
         }
     }
 
