@@ -299,13 +299,19 @@ async fn get_status(
 
     if let Some(last_update_ts) = query.last_update {
         for room_state in response_state.rooms.iter_mut() {
-            // Original history for this room before filtering
             let original_history = std::mem::take(&mut room_state.temperature_history);
-            // Filter and update
-            room_state.temperature_history = original_history
-                .into_iter()
-                .filter(|point| point.timestamp > last_update_ts)
-                .collect();
+            let mut new_history = Vec::new();
+            for point in original_history.iter().rev() {
+                if point.timestamp > last_update_ts {
+                    new_history.push(point.clone());
+                } else {
+                    // Since the history is sorted, we can break early
+                    break;
+                }
+            }
+            // The new_history is in reverse order, so reverse it back
+            new_history.reverse();
+            room_state.temperature_history = new_history;
         }
     }
     axum::Json(response_state)
