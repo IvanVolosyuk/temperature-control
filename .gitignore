@@ -1,3 +1,4 @@
 /target
 /server_state.json
 /Cargo.lock
+/server_state.bin
