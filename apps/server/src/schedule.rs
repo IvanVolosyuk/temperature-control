@@ -1,6 +1,6 @@
 // --- Temperature Constants for Schedules ---
 const BEDROOM_TEMP_NIGHT: f64 = 19.3;
-const BEDROOM_TEMP_DAY: f64 = 21.0;
+const BEDROOM_TEMP_DAY: f64 = 20.0;
 const BEDROOM_TEMP_DAY_OFF: f64 = 12.0; // Power saving
 
 // --- Interval Definitions ---
@@ -26,15 +26,15 @@ const IRINA_INTERVALS: &[(f64, f64)] = &[
 
 const CHILDREN_TEMP_NIGHT: f64 = 18.3;
 const CHILDREN_TEMP_DAY_OFF: f64 = 12.0;
-const CHILDREN_TEMP_MORNING: f64 = 20.0;
-const CHILDREN_TEMP_EVENING: f64 = 20.0;
+const CHILDREN_TEMP_MORNING: f64 = 19.0;
+const CHILDREN_TEMP_EVENING: f64 = 19.0;
 
 const CHILDREN_INTERVALS: &[(f64, f64)] = &[
     (0.0, CHILDREN_TEMP_EVENING), // Start of day with previous evening's temp
     (2.5, CHILDREN_TEMP_NIGHT),
     (4.5, CHILDREN_TEMP_NIGHT),    // Maintain night temp
     (7.0, CHILDREN_TEMP_MORNING),  // Transition to morning temp
-    (9.0, CHILDREN_TEMP_MORNING),  // Maintain morning temp
+    (7.8, CHILDREN_TEMP_MORNING),  // Maintain morning temp
     (17.0, CHILDREN_TEMP_DAY_OFF), // Power saving period
     (22.0, CHILDREN_TEMP_EVENING), // Transition to evening temp
     (24.0, CHILDREN_TEMP_EVENING), // Ensures behavior up to midnight
