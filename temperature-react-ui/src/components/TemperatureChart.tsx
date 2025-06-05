@@ -130,8 +130,8 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
     const gridColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
     const textColor = currentIsDarkMode ? 'rgba(255, 255, 255, 0.85)' : 'rgba(0, 0, 0, 0.85)';
     const chart = chartRef.current;
-    var xMin = Date.now() - (1 + OFFSET_FRACTION) * 2 * 3600 * 1000;
-    var xMax = Date.now() + OFFSET_FRACTION * 2 * 3600 * 1000
+    var xMin = Date.now() - (1 + OFFSET_FRACTION) * 4 * 3600 * 1000;
+    var xMax = Date.now() + OFFSET_FRACTION * 4 * 3600 * 1000
 
     if (chart && chart.options?.scales?.x) {
       const xScale = chart.options.scales.x as ScaleOptionsByType<'time'>;
@@ -291,9 +291,9 @@ const TemperatureChart: React.FC<TemperatureChartProps> = ({ roomName, roomData,
       <div className="flex justify-between items-center mb-2">
         <h3 className="text-xl font-medium text-gray-600 dark:text-gray-400">Temperature History</h3>
         <div className="chart-zoom-buttons flex gap-1">
-          <button type="button" className={bclass} onClick={() => handleZoom(10)}>10m</button>
-          <button type="button" className={bclass} onClick={() => handleZoom(120)}>2h</button>
-          <button type="button" className={bclass} onClick={() => handleZoom('all')}>All</button>
+          <button type="button" className={bclass} onClick={() => handleZoom(30)}>30m</button>
+          <button type="button" className={bclass} onClick={() => handleZoom(60 * 4)}>4h</button>
+          <button type="button" className={bclass} onClick={() => handleZoom(60 * 24)}>1d</button>
         </div>
       </div>
       <div className="chart-container relative w-full h-[300px] overflow-hidden">
