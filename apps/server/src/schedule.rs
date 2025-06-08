@@ -13,6 +13,7 @@ const BEDROOM_INTERVALS: &[(f64, f64)] = &[
     (5.0, BEDROOM_TEMP_NIGHT),    // Maintain night temp
     (8.0, BEDROOM_TEMP_DAY),      // Transition to day temp
     (9.5, BEDROOM_TEMP_DAY),      // Maintain day temp
+    (10.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
     (16.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
     (23.0, BEDROOM_TEMP_DAY),     // Transition back to normal day temp before night
     (24.0, BEDROOM_TEMP_DAY),     // Ensures behavior up to midnight
@@ -35,6 +36,7 @@ const CHILDREN_INTERVALS: &[(f64, f64)] = &[
     (4.5, CHILDREN_TEMP_NIGHT),    // Maintain night temp
     (7.0, CHILDREN_TEMP_MORNING),  // Transition to morning temp
     (7.8, CHILDREN_TEMP_MORNING),  // Maintain morning temp
+    (8.0, CHILDREN_TEMP_DAY_OFF), // Power saving period
     (17.0, CHILDREN_TEMP_DAY_OFF), // Power saving period
     (22.0, CHILDREN_TEMP_EVENING), // Transition to evening temp
     (24.0, CHILDREN_TEMP_EVENING), // Ensures behavior up to midnight
