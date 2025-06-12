@@ -209,7 +209,18 @@ function App() {
 
       try {
         console.log('Fetching initial full status...');
-        const initialData = await getStatus(); // Get all data initially
+
+        // Get all data initially
+        const urlParams = new URLSearchParams(window.location.search);
+        const fetchAllHistory = urlParams.has('all');
+        let cutoff: number | undefined = Math.floor(Date.now() / 1000 - 2 * 24 * 3600);
+        if (fetchAllHistory) {
+          console.log('Fetching all history due to "?all" query parameter.');
+          cutoff = undefined; // Or however your API signifies "all data"
+        } else {
+          console.log('Fetching history for the last 2 days.');
+        }
+        const initialData = await getStatus(cutoff);
         updateLocalStateWithFullServerResponse(initialData);
         console.log('Initial data processed.');
         if (!isManuallyDisconnectedRef.current) { // Check if disconnect was called during init

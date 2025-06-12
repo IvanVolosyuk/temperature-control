@@ -6,9 +6,6 @@ export async function getStatus(lastUpdate?: number): Promise<ServerStatusRespon
   let url = `${API_BASE_URL}/status`;
   if (lastUpdate) {
     url += `?last_update=${lastUpdate}`;
-  } else {
-    let cutoff = Math.floor(Date.now() / 1000 - 2 * 24 * 3600);
-    url += `?last_update=${cutoff}`;
   }
   const response = await fetch(url);
   if (!response.ok) {
