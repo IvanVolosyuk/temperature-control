@@ -19,6 +19,11 @@ impl Default for ServerState {
                     name: "Kids Bedroom".to_string(),
                     ..Default::default()
                 },
+                RoomStateWithId {
+                    id: 1,
+                    name: "Kitchen".to_string(),
+                    ..Default::default()
+                },
             ],
         }
     }
@@ -200,7 +205,7 @@ pub async fn read_and_parse_binary_state(path: &str) -> Result<Option<(ServerSta
         }
     }
 
-    // Add parsed points to the correct room state and sort history
+    // Add parsed points to the correct room state
     for (device_id, point) in parsed_points {
         if let Some(room) = server_state.rooms.iter_mut().find(|r| r.id == device_id) {
             room.temperature_history.push(point);
@@ -214,4 +219,135 @@ pub async fn read_and_parse_binary_state(path: &str) -> Result<Option<(ServerSta
     }
 
     Ok(Some((server_state, current_prev_ts0, current_prev_ts2)))
+}
+
+pub fn serialize_history_point_v2(device_id: u32, prev_timestamp: u32, point: TemperaturePoint) -> Vec<u32> {
+    // Bit layout:
+    // [sec:2][min:2][target_temp:15][temp:9][disabled][on][dev:2]
+    // [optional timestamp:32]
+    // 9 bits
+    let temp : u32 = ((point.temperature * 10. + 0.5) as u32).clamp(0, 511);
+    // 15 bits
+    let target_bits : u32 = ((point.target * 1024. + 0.5) as u32).clamp(0, 32767);
+    let dt : u32 = 30 + (point.timestamp as u32) - prev_timestamp;
+    let min : u32 = dt / 60;
+    let sec : u32 = dt - min * 60;
+    // TODO(check that device_id >= 0 and device_id < 3
+    let dev_bits : u32 = device_id;
+    let on_bit : u32 = if point.heater_on { 4 } else { 0 };
+    let disabled_bit : u32 = if point.is_disabled { 8 } else { 0 };
+    let partial = dev_bits | on_bit | disabled_bit | (temp << 4 | (target_bits << 13));
+    let min_bits = min.wrapping_sub(1);
+    let sec_bits = sec.wrapping_sub(29);
+    let time_bits = sec_bits << 2 | min_bits;
+
+    if min < 4 && sec < 4 && time_bits != 0xF {
+        vec!(partial | (time_bits << 28))
+    } else {
+        // 0xF in time bits encodes a flag for a separate u32 for timestamp
+        vec!((0xF << 28) | partial, point.timestamp as u32)
+    }
+}
+
+pub async fn read_and_parse_binary_state_v2(path: &str) -> Result<Option<(ServerState, [u32; 4])>> {
+    let mut file = match TokioFile::open(path).await {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+
+    let metadata = match file.metadata().await {
+        Ok(md) => md,
+        Err(e) => return Err(e.into()),
+    };
+
+    if metadata.len() == 0 {
+        return Ok(None);
+    }
+    if metadata.len() % 4 != 0 {
+        eprintln!(
+            "Binary state file {} has unexpected size {}. It might be corrupted.",
+            path,
+            metadata.len()
+        );
+        return Err(anyhow::anyhow!("Corrupted binary state file: invalid size"));
+    }
+
+    let mut server_state = ServerState::default();
+    let mut prev_timestamps = [0u32; 4];
+    let mut parsed_points: Vec<(u32, TemperaturePoint)> = Vec::new();
+
+    loop {
+        match file.read_u32_le().await {
+            Ok(val1) => {
+                let time_bits = (val1 >> 28) & 0xF;
+                let extra_timestamp_flag = time_bits == 0xF;
+
+                let device_id = (val1 & 0x3) as u32;
+                let on_bit_set = (val1 & 4) != 0;
+                let disabled_bit_set = (val1 & 8) != 0;
+                let temp_raw = (val1 >> 4) & 0x1FF;
+                let target_raw = (val1 >> 13) & 0x7FFF;
+
+                let prev_ts_for_this_point = prev_timestamps[device_id as usize];
+
+                let timestamp_u32 = if extra_timestamp_flag {
+                    match file.read_u32_le().await {
+                        Ok(full_ts) => full_ts,
+                        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                            eprintln!(
+                                "Binary state parsing error in {}: Unexpected EOF after reading first part of a two-word record for device {}.",
+                                path, device_id
+                            );
+                            return Err(anyhow::anyhow!("Corrupted binary state file: missing full timestamp"));
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                } else {
+                    let min_bits = time_bits & 0x3;
+                    let sec_bits = (time_bits >> 2) & 0x3;
+                    let min_val = min_bits + 1;
+                    let sec_val = sec_bits + 29;
+                    let dt = min_val * 60 + sec_val;
+                    prev_ts_for_this_point.wrapping_add(dt).wrapping_sub(30)
+                };
+
+                let temperature = temp_raw as f64 / 10.0;
+                let target = (target_raw as f64) / 1024.0;
+                let heater_on = on_bit_set;
+                let is_disabled = disabled_bit_set;
+
+                let point = TemperaturePoint {
+                    timestamp: timestamp_u32 as i64,
+                    temperature,
+                    target,
+                    heater_on,
+                    is_disabled,
+                };
+
+                parsed_points.push((device_id, point));
+                prev_timestamps[device_id as usize] = timestamp_u32;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                break;
+            }
+            Err(e) => {
+                eprintln!("Binary state parsing I/O error in {}: {}", path, e);
+                return Err(e.into());
+            }
+        }
+    }
+
+    for (device_id, point) in parsed_points {
+        if let Some(room) = server_state.rooms.iter_mut().find(|r| r.id == device_id) {
+            room.temperature_history.push(point);
+        } else {
+            eprintln!(
+                "Binary state parsing warning: Device ID {} found in {} but no corresponding room in ServerState.",
+                device_id, path
+            );
+        }
+    }
+
+    Ok(Some((server_state, prev_timestamps)))
 }
