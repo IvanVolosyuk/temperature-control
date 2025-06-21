@@ -5,5 +5,5 @@ members = [
     "apps/logger",
     "apps/udp-test",
     "apps/enable",
-    "apps/server",
+    "apps/server", "history",
 ]

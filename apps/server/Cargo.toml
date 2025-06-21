@@ -8,6 +8,7 @@ protobuf = "*"
 anyhow = { version = "*", features = ["backtrace"] }
 chrono = "*"
 temperature-protocol = { path = "../../protocol" }
+history = { path = "../../history" }
 axum = { version = "*", features = ["ws", "macros"] }
 tokio = { version = "*", features = ["full"] }
 tower-http = { version = "*", features = ["fs", "compression-full"] }

@@ -14,7 +14,8 @@ use futures_util::{
     sink::SinkExt,
     stream::{SplitSink, SplitStream, StreamExt},
 };
-use serde::{Deserialize, Serialize};
+use history::ServerState;
+use serde::Deserialize;
 use std::path::PathBuf; // Added PathBuf
 use std::sync::Arc;
 use temperature_protocol::relay::set_relay;
@@ -28,68 +29,6 @@ use tower_http::services::ServeDir; // Added tokio::fs for reading index.html
 pub struct WebState {
     pub server_state: Arc<RwLock<ServerState>>,
     pub ws_connections: Arc<RwLock<Vec<WsTx>>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)] // Removed Default here, will implement manually
-pub struct ServerState {
-    pub rooms: Vec<RoomStateWithId>,
-}
-
-impl Default for ServerState {
-    fn default() -> Self {
-        ServerState {
-            rooms: vec![
-                RoomStateWithId {
-                    id: 0,
-                    name: "Bedroom".to_string(),
-                    ..Default::default()
-                },
-                RoomStateWithId {
-                    id: 2,
-                    name: "Kids Bedroom".to_string(),
-                    ..Default::default()
-                },
-            ],
-        }
-    }
-}
-
-#[derive(Default, Clone, Serialize, Deserialize)]
-pub struct RoomStateWithId {
-    pub id: u32,
-    pub name: String,
-    pub sensor_available: bool,
-    pub current_temp: f64,
-    pub target_temp: f64,
-    pub relay_available: bool,
-    pub relay_state: bool,
-    pub temperature_history: Vec<TemperaturePoint>,
-    pub disabled_until: Option<i64>, // Timestamp when disabled state expires
-    pub override_temperature: Option<f64>,
-    pub override_until: Option<i64>,
-}
-
-// RoomState remains as a component of RoomStateWithId, ensure it has Default
-#[derive(Default, Clone, Serialize)]
-pub struct RoomState {
-    pub sensor_available: bool,
-    pub current_temp: f64,
-    pub target_temp: f64,
-    pub relay_available: bool,
-    pub relay_state: bool,
-    pub temperature_history: Vec<TemperaturePoint>,
-    pub disabled_until: Option<i64>, // Timestamp when disabled state expires
-    pub override_temperature: Option<f64>,
-    pub override_until: Option<i64>,
-}
-
-#[derive(Default, Clone, Serialize, Deserialize)]
-pub struct TemperaturePoint {
-    pub timestamp: i64,
-    pub temperature: f64,
-    pub target: f64,
-    pub heater_on: bool,
-    pub is_disabled: bool,
 }
 
 #[derive(Deserialize)]
