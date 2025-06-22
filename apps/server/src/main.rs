@@ -18,7 +18,7 @@ use tokio::{
 pub type WsTx = mpsc::Sender<WsMessage>;
 use crate::web::create_web_server;
 use history::{
-    read_and_parse_binary_state, serialize_history_point, ServerState, TemperaturePoint,
+    read_and_parse_binary_state_v2, serialize_history_point_v2, ServerState, TemperaturePoint,
 };
 
 // These are from the temperature_protocol crate
@@ -116,8 +116,7 @@ struct Server {
     web_state: Arc<RwLock<ServerState>>,
     ws_connections: Arc<RwLock<Vec<WsTx>>>, // WsTx is now defined above
     binary_state_file: Option<TokioFile>,
-    prev_timestamp_device0: u32,
-    prev_timestamp_device2: u32,
+    prev_timestamps: [u32; 4],
 }
 
 #[derive(PartialEq, Debug)]
@@ -133,39 +132,34 @@ impl Server {
             Box::new(PWMControl::new(-0.36)),
             Box::new(SimpleControl::new()),
             Box::new(PWMControl::new(-0.36)),
+            Box::new(SimpleControl::new()),
         ];
 
-        let server_state_bin_path = "server_state.bin";
-        let final_web_state: ServerState;
-        let final_prev_timestamp_device0: u32;
-        let final_prev_timestamp_device2: u32;
-
-        match read_and_parse_binary_state(server_state_bin_path).await {
-            Ok(Some((loaded_state, ts0, ts2))) => {
-                println!("Successfully loaded state from binary file: {}", server_state_bin_path);
-                final_web_state = loaded_state;
-                final_prev_timestamp_device0 = ts0;
-                final_prev_timestamp_device2 = ts2;
-            }
-            Ok(None) => {
-                println!(
-                    "Binary state file {} not found or empty. Initializing with default state.",
-                    server_state_bin_path
-                );
-                final_web_state = ServerState::default();
-                final_prev_timestamp_device0 = 0;
-                final_prev_timestamp_device2 = 0;
-            }
-            Err(e) => {
-                eprintln!(
-                    "Error reading binary state file {}: {}. Initializing with default state.",
-                    server_state_bin_path, e
-                );
-                final_web_state = ServerState::default();
-                final_prev_timestamp_device0 = 0;
-                final_prev_timestamp_device2 = 0;
-            }
-        }
+        let server_state_bin_path = "server_state_v2.bin";
+        let (final_web_state, final_prev_timestamps) =
+            match read_and_parse_binary_state_v2(server_state_bin_path).await {
+                Ok(Some((loaded_state, timestamps))) => {
+                    println!(
+                        "Successfully loaded V2 state from binary file: {}",
+                        server_state_bin_path
+                    );
+                    (loaded_state, timestamps)
+                }
+                Ok(None) => {
+                    println!(
+                        "Binary state file {} not found or empty. Initializing with default state.",
+                        server_state_bin_path
+                    );
+                    (ServerState::default(), [0; 4])
+                }
+                Err(e) => {
+                    eprintln!(
+                        "Error reading binary state file {}: {}. Initializing with default state.",
+                        server_state_bin_path, e
+                    );
+                    (ServerState::default(), [0; 4])
+                }
+            };
 
         // Open the binary state file for normal append operations
         let binary_file_handle = match OpenOptions::new()
@@ -190,8 +184,7 @@ impl Server {
             web_state: Arc::new(RwLock::new(final_web_state)),
             ws_connections: Arc::new(RwLock::new(Vec::new())),
             binary_state_file: binary_file_handle,
-            prev_timestamp_device0: final_prev_timestamp_device0,
-            prev_timestamp_device2: final_prev_timestamp_device2,
+            prev_timestamps: final_prev_timestamps,
         }
     }
 
@@ -259,51 +252,34 @@ impl Server {
             is_disabled,
         };
 
-        // Append to binary state file if device is 0 or 2
-        if device_id == 0 || device_id == 2 {
-            if let Err(e) = self.append_to_binary_state(device_id, new_point_for_binary).await {
-                eprintln!("Error appending to binary state for device {}: {}", device_id, e);
-                // Decide if this error should halt further operations or just be logged
-            }
+        if let Err(e) = self.append_to_binary_state(device_id, new_point_for_binary).await {
+            eprintln!("Error appending to binary state for device {}: {}", device_id, e);
         }
 
         return Ok(());
     }
 
     async fn append_to_binary_state(&mut self, device_id: u32, point: TemperaturePoint) -> Result<()> {
-        if device_id != 0 && device_id != 2 {
-            return Ok(()); // Only log for device 0 and 2
+        if device_id >= 4 {
+            return Ok(()); // Only log for devices 0-3
         }
 
-        let prev_timestamp = if device_id == 0 {
-            self.prev_timestamp_device0
-        } else {
-            self.prev_timestamp_device2
-        };
+        let prev_timestamp = self.prev_timestamps[device_id as usize];
 
-        let serialized_data = serialize_history_point(device_id, prev_timestamp, point.clone());
+        let serialized_data =
+            serialize_history_point_v2(device_id, prev_timestamp, point.clone());
 
         if let Some(file) = self.binary_state_file.as_mut() {
             for val in serialized_data {
-                // Write each u32 as little-endian bytes
                 if let Err(e) = file.write_u32_le(val).await {
                     eprintln!(
                         "Failed to write to server_state.bin for device {}: {}. Further binary logging might be affected.",
-                        device_id,
-                        e
+                        device_id, e
                     );
-                    // Optionally, could set self.binary_state_file to None here to stop further attempts
-                    return Err(e.into()); // Propagate the error
+                    return Err(e.into());
                 }
             }
-            // Update the previous timestamp for the device
-            if device_id == 0 {
-                self.prev_timestamp_device0 = point.timestamp as u32;
-            } else {
-                self.prev_timestamp_device2 = point.timestamp as u32;
-            }
-        } else {
-            // eprintln!("Binary state file not available for device {}", device_id); // Optional: log that file is not open
+            self.prev_timestamps[device_id as usize] = point.timestamp as u32;
         }
         Ok(())
     }
