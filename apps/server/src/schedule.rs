@@ -1,6 +1,6 @@
 // --- Temperature Constants for Schedules ---
 const BEDROOM_TEMP_NIGHT: f64 = 19.3;
-const BEDROOM_TEMP_DAY: f64 = 21.0;
+const BEDROOM_TEMP_DAY: f64 = 20.5;
 const BEDROOM_TEMP_DAY_OFF: f64 = 12.0; // Power saving
 
 // --- Interval Definitions ---
@@ -14,7 +14,7 @@ const BEDROOM_INTERVALS: &[(f64, f64)] = &[
     (8.0, BEDROOM_TEMP_DAY),      // Transition to day temp
     (9.5, BEDROOM_TEMP_DAY),      // Maintain day temp
     (10.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
-    (16.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
+    (21.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
     (23.0, BEDROOM_TEMP_DAY),     // Transition back to normal day temp before night
     (24.0, BEDROOM_TEMP_DAY),     // Ensures behavior up to midnight
 ];
