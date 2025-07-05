@@ -1,6 +1,9 @@
 // --- Temperature Constants for Schedules ---
-const BEDROOM_TEMP_NIGHT: f64 = 18.3;
-const BEDROOM_TEMP_DAY: f64 = 20.2;
+//const BEDROOM_TEMP_NIGHT: f64 = 18.3;
+//const BEDROOM_TEMP_DAY: f64 = 20.2;
+//const BEDROOM_TEMP_DAY_OFF: f64 = 12.0; // Power saving
+const BEDROOM_TEMP_NIGHT: f64 = 19.0;
+const BEDROOM_TEMP_DAY: f64 = 19.6;
 const BEDROOM_TEMP_DAY_OFF: f64 = 12.0; // Power saving
 
 // --- Interval Definitions ---
@@ -21,8 +24,17 @@ const BEDROOM_INTERVALS: &[(f64, f64)] = &[
 
 // For Irina, the temperature is constant.
 const IRINA_INTERVALS: &[(f64, f64)] = &[
-    (0.0, 21.5), // Temp at 00:00 is 21.5. Any time after will take this value.
-                 // (24.0, 21.5) // Could add this for consistency, interpolate_fn_rust handles single point correctly.
+    (0.0, BEDROOM_TEMP_DAY), // Start of day temperature
+    (3.0, BEDROOM_TEMP_NIGHT),
+    (5.0, BEDROOM_TEMP_NIGHT),    // Maintain night temp
+    (8.0, BEDROOM_TEMP_DAY),      // Transition to day temp
+    (9.5, BEDROOM_TEMP_DAY),      // Maintain day temp
+    (10.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
+    (21.0, BEDROOM_TEMP_DAY_OFF), // Power saving period
+    (23.0, BEDROOM_TEMP_DAY - 1.),     // Transition back to normal day temp before night
+    (24.0, BEDROOM_TEMP_DAY - 1.),     // Ensures behavior up to midnight
+    //(0.0, 21.5), // Temp at 00:00 is 21.5. Any time after will take this value.
+    //             // (24.0, 21.5) // Could add this for consistency, interpolate_fn_rust handles single point correctly.
 ];
 
 const CHILDREN_TEMP_NIGHT: f64 = 18.3;

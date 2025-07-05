@@ -262,6 +262,7 @@ async fn control_relay(
 ) -> axum::Json<serde_json::Value> {
     let relay_hostname = match request.room_id {
         0 => "esp8266-relay0.local", // Bedroom
+        1 => "esp8266-relay1.local", // Bedroom
         2 => "esp8266-relay2.local", // Kids Bedroom
         _ => {
             return axum::Json(serde_json::json!({ "success": false, "error": "Invalid room ID" }))
